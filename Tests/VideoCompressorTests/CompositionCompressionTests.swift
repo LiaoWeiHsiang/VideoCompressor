@@ -160,6 +160,212 @@ final class CompositionCompressionTests: XCTestCase {
         XCTAssertEqual(min(size.width, size.height), 1080, accuracy: 2, "output is not 1080p")
     }
 
+    /// Colour adjustment and clip animation, with no transition involved.
+    ///
+    /// Both switch `CompositionBuilder` to its `UnifiedCompositor` path, which is a custom
+    /// `AVVideoComposition` compositor — the part of AVFoundation least likely to survive
+    /// being read through `AVAssetReaderVideoCompositionOutput` rather than exported.
+    @MainActor
+    func testAdjustmentAndAnimationSurviveTheCompressionPath() async throws {
+        let a = try await AudioVideoFactory.makeVideoWithAudio(seconds: 4, toneHz: 440)
+        defer { try? FileManager.default.removeItem(at: a) }
+
+        let store = try await makeTimeline(clips: [a])
+        let segment = try XCTUnwrap(store.timeline.mainTrack?.segments.first)
+
+        var adjustment = SegmentAdjustment()
+        adjustment.brightness = 0.2
+        adjustment.saturation = 1.4
+        store.setAdjustment(segmentID: segment.id, adjustment: adjustment)
+        store.setClipAnimation(
+            segmentID: segment.id,
+            animation: ClipAnimation(semantic: .fadeIn, timing: .in, duration: 0.5)
+        )
+
+        let built = try await CompositionBuilder().build(
+            from: store.timeline,
+            renderSubtitles: true,
+            renderSize: CGSize(
+                width: EditorScreen.exportShortSide * 16 / 9,
+                height: EditorScreen.exportShortSide
+            )
+        )
+        XCTAssertNotNil(
+            built.videoComposition.customVideoCompositorClass,
+            "expected the unified compositor path once an adjustment exists"
+        )
+
+        let compressor = VideoCompressor()
+        let outputURL = try await compressor.compress(
+            source: .composition(
+                built.composition,
+                videoComposition: built.videoComposition,
+                audioMix: built.audioMix,
+                shotAt: nil
+            ),
+            preset: .small
+        )
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let seconds = CMTimeGetSeconds(try await AVURLAsset(url: outputURL).load(.duration))
+        print("ADJUST_OUTPUT_SECONDS: \(seconds)")
+        XCTAssertEqual(seconds, 4.0, accuracy: 0.5)
+        XCTAssertEqual(compressor.progress, 1.0, "adjustment path never completed")
+    }
+
+    /// A timeline containing a transition must produce a composition AVFoundation accepts.
+    ///
+    /// `AVVideoComposition` requires its instructions to be disjoint and ascending.
+    /// Upstream let each segment's instruction span its whole duration *and* appended a
+    /// transition instruction straddling the boundary, so all three overlapped and the
+    /// composition was rejected outright — every export of a timeline with a transition
+    /// failed with a bare `AVErrorInvalidVideoComposition`.
+    @MainActor
+    func testTransitionProducesAValidComposition() async throws {
+        let a = try await AudioVideoFactory.makeVideoWithAudio(seconds: 4, toneHz: 440)
+        let b = try await AudioVideoFactory.makeVideoWithAudio(seconds: 3, toneHz: 880)
+        defer { [a, b].forEach { try? FileManager.default.removeItem(at: $0) } }
+
+        let store = try await makeTimeline(clips: [a, b])
+        let segments = try XCTUnwrap(store.timeline.mainTrack?.segments)
+        XCTAssertEqual(segments.count, 2, "need two segments to place a transition between")
+
+        XCTAssertNotNil(
+            store.addTransition(between: segments[0].id, and: segments[1].id,
+                                type: .fade, duration: 0.5),
+            "addTransition refused a valid adjacent pair"
+        )
+        var adjustment = SegmentAdjustment()
+        adjustment.brightness = 0.2
+        store.setAdjustment(segmentID: segments[0].id, adjustment: adjustment)
+
+        let built = try await CompositionBuilder().build(
+            from: store.timeline,
+            renderSubtitles: true,
+            renderSize: CGSize(
+                width: EditorScreen.exportShortSide * 16 / 9,
+                height: EditorScreen.exportShortSide
+            )
+        )
+        XCTAssertNotNil(
+            built.videoComposition.customVideoCompositorClass,
+            "expected the unified compositor path once a transition and adjustment exist"
+        )
+
+        try await assertCompositionIsValid(built, label: "TRANSITION")
+
+        let compressor = VideoCompressor()
+        let outputURL = try await compressor.compress(
+            source: .composition(
+                built.composition,
+                videoComposition: built.videoComposition,
+                audioMix: built.audioMix,
+                shotAt: nil
+            ),
+            preset: .small
+        )
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let seconds = CMTimeGetSeconds(try await AVURLAsset(url: outputURL).load(.duration))
+        print("TRANSITION_OUTPUT_SECONDS: \(seconds)")
+        // Timeline positions are never shifted (audio is laid down at raw timeline times),
+        // so the join stays where it was: 4 + 3.
+        XCTAssertEqual(seconds, 7.0, accuracy: 0.6)
+        XCTAssertEqual(compressor.progress, 1.0, "transition path never completed")
+    }
+
+    /// With footage to spare outside the in/out points, the transition must actually
+    /// overlap the two clips — otherwise it would dissolve a clip against black, which
+    /// looks worse than the hard cut it is supposed to replace.
+    @MainActor
+    func testTrimmedClipsGiveTheTransitionRealOverlap() async throws {
+        let a = try await AudioVideoFactory.makeVideoWithAudio(seconds: 4, toneHz: 440)
+        let b = try await AudioVideoFactory.makeVideoWithAudio(seconds: 4, toneHz: 880)
+        defer { [a, b].forEach { try? FileManager.default.removeItem(at: $0) } }
+
+        let store = try await makeTimeline(clips: [a, b])
+        let segments = try XCTUnwrap(store.timeline.mainTrack?.segments)
+
+        // Leave a second of unused footage on each facing side: A ends a second early,
+        // B starts a second in.
+        store.trimSegment(id: segments[0].id,
+                          newTargetRange: TimeRange(start: 0, duration: 3),
+                          newSourceRangeStart: 0)
+        store.trimSegment(id: segments[1].id,
+                          newTargetRange: TimeRange(start: 3, duration: 3),
+                          newSourceRangeStart: 1)
+        XCTAssertNotNil(
+            store.addTransition(between: segments[0].id, and: segments[1].id,
+                                type: .fade, duration: 0.5)
+        )
+
+        let built = try await CompositionBuilder().build(
+            from: store.timeline,
+            renderSubtitles: true,
+            renderSize: CGSize(width: 1920, height: 1080)
+        )
+        try await assertCompositionIsValid(built, label: "OVERLAP")
+
+        // Three instructions means the middle one is the transition; two would mean it was
+        // dropped for lack of footage and the clips just cut.
+        XCTAssertEqual(
+            built.videoComposition.instructions.count, 3,
+            "expected body / transition / body — the transition window was dropped"
+        )
+        let window = built.videoComposition.instructions[1].timeRange
+        XCTAssertEqual(built.videoComposition.instructions[1].requiredSourceTrackIDs?.count, 2,
+                       "the transition window must draw from both clips at once")
+
+        // Both composition tracks must genuinely hold media across that window, which is
+        // the thing that was missing: the instruction existed but had nothing to blend.
+        let videoTracks = try await built.composition.loadTracks(withMediaType: .video)
+        XCTAssertEqual(videoTracks.count, 2)
+        for track in videoTracks {
+            let segments = try await track.load(.segments)
+            let covered = segments.contains { !$0.isEmpty && $0.timeMapping.target.containsTimeRange(window) }
+            XCTAssertTrue(
+                covered,
+                "track \(track.trackID) has no media across \(CMTimeGetSeconds(window.start))..\(CMTimeGetSeconds(window.end))"
+            )
+        }
+    }
+
+    /// Prints AVFoundation's own complaints before asserting, so a failure says which
+    /// instruction is wrong rather than just `AVErrorInvalidVideoComposition`.
+    private func assertCompositionIsValid(
+        _ built: CompositionResult,
+        label: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let validator = CompositionValidationReporter()
+        let duration = try await built.composition.load(.duration)
+        let isValid = try await built.videoComposition.isValid(
+            for: built.composition,
+            timeRange: CMTimeRange(start: .zero, duration: duration),
+            validationDelegate: validator
+        )
+        print("\(label)_COMPOSITION_DURATION: \(CMTimeGetSeconds(duration))")
+        for instruction in built.videoComposition.instructions {
+            let r = instruction.timeRange
+            print("\(label)_INSTR: \(CMTimeGetSeconds(r.start))..\(CMTimeGetSeconds(r.end)) tracks=\(instruction.requiredSourceTrackIDs ?? [])")
+        }
+        for problem in validator.problems { print("\(label)_PROBLEM: \(problem)") }
+
+        XCTAssertTrue(isValid, "video composition is invalid: \(validator.problems)", file: file, line: line)
+
+        // Spell the requirement out, since `isValid` alone would not say which rule broke.
+        var previousEnd = CMTime.zero
+        for instruction in built.videoComposition.instructions {
+            XCTAssertTrue(
+                instruction.timeRange.start >= previousEnd,
+                "instructions overlap or are out of order at \(CMTimeGetSeconds(instruction.timeRange.start))",
+                file: file, line: line
+            )
+            previousEnd = instruction.timeRange.end
+        }
+    }
+
     /// An edited clip must still be dated by when it was *filmed*, both in the file's
     /// metadata and in its name. This is the Immich bug, one layer up: the composition
     /// carries no metadata of its own, so the date has to be threaded through explicitly.
@@ -201,5 +407,45 @@ final class CompositionCompressionTests: XCTestCase {
             outputURL.lastPathComponent.hasPrefix(VideoCompressor.makeOutputFilename(shotAt: shotAt)),
             "expected the shooting-date filename, got \(outputURL.lastPathComponent)"
         )
+    }
+}
+
+/// Collects AVFoundation's own complaints about a video composition, which are otherwise
+/// reduced to a bare `AVErrorInvalidVideoComposition` by the time a reader reports them.
+final class CompositionValidationReporter: NSObject, AVVideoCompositionValidationHandling {
+    var problems: [String] = []
+
+    func videoComposition(
+        _ videoComposition: AVVideoComposition,
+        shouldContinueValidatingAfterFindingInvalidValueForKey key: String
+    ) -> Bool {
+        problems.append("invalid value for key: \(key)")
+        return true
+    }
+
+    func videoComposition(
+        _ videoComposition: AVVideoComposition,
+        shouldContinueValidatingAfterFindingEmptyTimeRange timeRange: CMTimeRange
+    ) -> Bool {
+        problems.append("empty time range: \(CMTimeGetSeconds(timeRange.start))..\(CMTimeGetSeconds(timeRange.end))")
+        return true
+    }
+
+    func videoComposition(
+        _ videoComposition: AVVideoComposition,
+        shouldContinueValidatingAfterFindingInvalidTimeRangeIn instruction: any AVVideoCompositionInstructionProtocol
+    ) -> Bool {
+        problems.append("invalid time range in instruction: \(CMTimeGetSeconds(instruction.timeRange.start))..\(CMTimeGetSeconds(instruction.timeRange.end))")
+        return true
+    }
+
+    func videoComposition(
+        _ videoComposition: AVVideoComposition,
+        shouldContinueValidatingAfterFindingInvalidTrackIDIn instruction: any AVVideoCompositionInstructionProtocol,
+        layerInstruction: AVVideoCompositionLayerInstruction,
+        asset: AVAsset
+    ) -> Bool {
+        problems.append("invalid track id \(layerInstruction.trackID) in instruction at \(CMTimeGetSeconds(instruction.timeRange.start))")
+        return true
     }
 }

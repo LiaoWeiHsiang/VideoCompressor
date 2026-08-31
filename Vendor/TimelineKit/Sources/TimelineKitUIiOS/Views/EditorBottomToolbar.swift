@@ -149,12 +149,18 @@ struct EditorSecondaryToolPanel: View {
                 store.pasteSegment(after: selID)
             }
 
+        // LOCAL PATCH (see VENDORED.md #7). These were inert icons: tapping the category
+        // opened a panel containing a picture of the category. The real editors are
+        // reachable, just not from here — say where instead of showing a dead control.
         case .transition:
-            toolItem("轉場", icon: "arrow.left.and.right.square")
+            let segmentCount = store.timeline.mainTrack?.segments.count ?? 0
+            hint(segmentCount >= 2
+                 ? "點兩段影片之間的接點圖示,即可選擇轉場效果"
+                 : "轉場需要兩段以上的影片。用右上角的 + 再加入一段。")
 
         case .adjust:
             // Curves / HSL / noise-reduction are V3 — hidden until shipped.
-            toolItem("調節", icon: "slider.horizontal.3")
+            hint("先點一下時間軸上的影片片段,再按「調節」")
 
         case .text:
             toolButton("新建文字", icon: "textformat", enabled: true) {
@@ -164,9 +170,23 @@ struct EditorSecondaryToolPanel: View {
                 store.createNewSubtitleSegment()
             }
 
+        case .animation:
+            // Without a selection this fell through to `default`, so the panel opened
+            // completely empty and the feature looked broken rather than unselected.
+            hint("先點一下時間軸上的影片片段,再按「動畫」")
+
         default:
             EmptyView()
         }
+    }
+
+    /// Explains where a tool actually lives, in place of a control that does nothing.
+    private func hint(_ message: String) -> some View {
+        Text(message)
+            .font(.system(size: 13))
+            .foregroundStyle(Color.white.opacity(0.65))
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: 300, alignment: .leading)
     }
 
     private func toolButton(_ label: String, icon: String, enabled: Bool, action: @escaping () -> Void) -> some View {

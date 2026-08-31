@@ -11,8 +11,11 @@ import TimelineKitUIiOS
 /// to local files, which for iCloud videos can take a while.
 struct EditorSession: Identifiable {
     let id = UUID()
-    /// The queue item this session was opened from; the finished edit replaces it.
+    /// The queue item this session was opened from; the finished edit takes its place.
     let targetItemID: UUID
+    /// Every item whose clip is on the timeline. The edit renders them into a single
+    /// video, so on export they collapse into one queue entry.
+    let mergedItemIDs: [UUID]
     let clips: [EditorScreen.EditorClip]
 }
 

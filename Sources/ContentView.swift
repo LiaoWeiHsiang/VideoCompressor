@@ -155,7 +155,11 @@ struct ContentView: View {
                     preset: preset,
                     dateMode: dateMode
                 ) { result in
-                    addEditedResult(result, for: session.targetItemID)
+                    addEditedResult(
+                        result,
+                        for: session.targetItemID,
+                        merged: session.mergedItemIDs
+                    )
                 }
             }
             .onOpenURL { url in
@@ -251,22 +255,37 @@ struct ContentView: View {
     /// The clip has to be resolved to a local file first: TimelineKit reads off disk, and a
     /// PHAsset still in iCloud has no file until it has been downloaded — which is why this
     /// shows a spinner rather than opening instantly.
+    /// Opens the editor on every clip still waiting to be compressed, with the tapped one
+    /// first.
+    ///
+    /// Loading only the tapped clip would make transitions impossible to reach at all —
+    /// there is nothing to transition between — and would rule out reordering, which is
+    /// half of why the editor is here. These are the same clips "開始壓縮" would process.
     private func openEditor(itemID: UUID) async {
-        guard let item = queue.first(where: { $0.id == itemID }) else { return }
         isPreparingEditor = true
         defer { isPreparingEditor = false }
 
+        // Tapped clip first, then the rest in queue order.
+        let pending = queue.filter { $0.status == .pending }
+        let ordered = pending.filter { $0.id == itemID } + pending.filter { $0.id != itemID }
+        guard !ordered.isEmpty else { return }
+
         do {
-            let url: URL
-            switch item.source {
-            case .asset(let asset):
-                url = try await VideoFile.from(asset: asset).url
-            case .file(let video):
-                url = video.url
+            var clips: [EditorScreen.EditorClip] = []
+            for item in ordered {
+                let url: URL
+                switch item.source {
+                case .asset(let asset):
+                    url = try await VideoFile.from(asset: asset).url
+                case .file(let video):
+                    url = video.url
+                }
+                clips.append(.init(url: url, shotAt: item.creationDate, location: item.location))
             }
             editorSession = EditorSession(
                 targetItemID: itemID,
-                clips: [.init(url: url, shotAt: item.creationDate, location: item.location)]
+                mergedItemIDs: ordered.map(\.id),
+                clips: clips
             )
         } catch {
             errorMessage = error.localizedDescription
@@ -276,7 +295,17 @@ struct ContentView: View {
     /// The editor hands back an already-compressed file, so the clip it was opened from
     /// becomes a finished item in place — ready for the same "save to Photos" path as
     /// everything else, and keeping its position in the queue.
-    private func addEditedResult(_ result: EditorScreen.EditedResult, for itemID: UUID) {
+    ///
+    /// Anything else that was on the timeline has been rendered into that same file, so
+    /// those entries are removed rather than left behind looking un-processed.
+    private func addEditedResult(
+        _ result: EditorScreen.EditedResult,
+        for itemID: UUID,
+        merged mergedItemIDs: [UUID]
+    ) {
+        let absorbed = Set(mergedItemIDs).subtracting([itemID])
+        queue.removeAll { absorbed.contains($0.id) }
+
         guard let index = queue.firstIndex(where: { $0.id == itemID }) else { return }
         queue[index].status = .done
         queue[index].outputURL = result.outputURL

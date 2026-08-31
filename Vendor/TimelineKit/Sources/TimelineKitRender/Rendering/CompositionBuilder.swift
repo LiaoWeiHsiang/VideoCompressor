@@ -334,6 +334,19 @@ public actor CompositionBuilder {
         // it works, but play does not).
         var imageLayerMap: [UUID: ImageLayerSpec] = [:]
 
+        // LOCAL PATCH (see VENDORED.md #8). A cross-fade has to show both clips at the
+        // same instant, but each segment is inserted for exactly its own duration, so the
+        // two never overlap and the transition instruction had nothing to blend. Widen
+        // each side of the boundary into the footage that sits outside its in/out points.
+        //
+        // Recorded per segment during insertion, then consulted when the instructions are
+        // built so the window matches the media that actually exists.
+        var srcInfo   = [(track: AVAssetTrack, start: Double, duration: Double)?](
+                            repeating: nil, count: sortedSegs.count)
+        var spareHead = [Double](repeating: 0, count: sortedSegs.count)
+        var spareTail = [Double](repeating: 0, count: sortedSegs.count)
+        var effectiveTransitionDuration: [UUID: Double] = [:]
+
         // Load the sentinel once — a tiny 1×1 transparent MP4 cached to disk.
         let sentinelURL    = try? await SentinelAsset.url()
         let sentinelAsset  = sentinelURL.map { AVURLAsset(url: $0) }
@@ -406,11 +419,61 @@ public actor CompositionBuilder {
             // shorter than requested due to timescale rounding (try? swallows the error).
             let assetTrackDur = (try? await assetTrack.load(.timeRange).duration.seconds) ?? srcDur
             let clampedSrcDur = min(srcDur, assetTrackDur)
+
+            // LOCAL PATCH (see VENDORED.md #8) — footage available outside the in/out
+            // points, which is the only place a cross-fade can borrow overlap from
+            // without shifting the timeline (and desynchronising audio, which is
+            // inserted at raw timeline times by `buildAudio`).
+            srcInfo[i]   = (assetTrack, srcStart, clampedSrcDur)
+            spareHead[i] = max(0, srcStart)
+            spareTail[i] = max(0, assetTrackDur - (srcStart + clampedSrcDur))
+
+            var headExtension = 0.0
+            if i > 0,
+               let transition = incoming[seg.id],
+               transition.leadingSegmentID == sortedSegs[i - 1].id,
+               let previous = srcInfo[i - 1] {
+                let previousSeg = sortedSegs[i - 1]
+                let requested = min(transition.duration,
+                                    min(previousSeg.targetRange.duration,
+                                        seg.targetRange.duration) * 0.5)
+                // Each side supplies half the window, so the shorter spare side caps it.
+                let usable = max(0, min(requested, 2 * spareTail[i - 1], 2 * spareHead[i]))
+
+                if usable > 0.001 {
+                    effectiveTransitionDuration[transition.id] = usable
+                    headExtension = usable / 2
+
+                    // Extend the previous segment forward into its spare tail. It sits on
+                    // the other track, whose media currently ends exactly here, so this
+                    // appends and cannot shift anything already inserted.
+                    let previousTrack = (((i - 1) % 2 == 0) || trackBID == nil)
+                        ? compTracks[0]! : compTracks[1]!
+                    let tailSource = CMTimeRange(
+                        start:    CMTime(seconds: previous.start + previous.duration, preferredTimescale: 600),
+                        duration: CMTime(seconds: headExtension, preferredTimescale: 600)
+                    )
+                    try? previousTrack.insertTimeRange(
+                        tailSource,
+                        of: previous.track,
+                        at: CMTime(seconds: insertionTimes[i - 1] + previousSeg.targetRange.duration,
+                                   preferredTimescale: 600)
+                    )
+                }
+            }
+
+            // Reaching back by `headExtension` keeps the source-to-composition mapping
+            // unchanged — this segment still lands on its own timeline slot, it merely
+            // starts supplying frames early enough to be dissolved into.
             let sr = CMTimeRange(
-                start:    CMTime(seconds: srcStart,       preferredTimescale: 600),
-                duration: CMTime(seconds: clampedSrcDur,  preferredTimescale: 600)
+                start:    CMTime(seconds: srcStart - headExtension,       preferredTimescale: 600),
+                duration: CMTime(seconds: clampedSrcDur + headExtension,  preferredTimescale: 600)
             )
-            try? track.insertTimeRange(sr, of: assetTrack, at: startCM)
+            try? track.insertTimeRange(
+                sr,
+                of: assetTrack,
+                at: CMTime(seconds: insertionTimes[i] - headExtension, preferredTimescale: 600)
+            )
 
 #if DEBUG
             print("[CompositionBuilder] unified ✅ seg[\(i)] track\(isEven || trackBID == nil ? "A" : "B") t=\(String(format:"%.2f",insertionTimes[i]))s")
@@ -489,11 +552,16 @@ public actor CompositionBuilder {
             let compStart       = insertionTimes[i]
             let outgoingTrans   = outgoing[seg.id]
 
-            // V7: body spans the full segment — transition blending is render-only.
-            // Timeline Runtime (TransitionComposer) handles blending; AVPlayer path
-            // shows a hard cut at the boundary (acceptable for the legacy path).
-            let bodyStart = compStart
-            let bodyEnd   = compStart + seg.targetRange.duration
+            // LOCAL PATCH (see VENDORED.md #8). The body used to span the whole segment
+            // while a transition instruction was appended straddling the boundary, so the
+            // three overlapped. `AVVideoComposition` requires instructions to be disjoint
+            // and in ascending order, and rejected the whole composition
+            // (AVErrorInvalidVideoComposition) — every export of a timeline containing a
+            // transition failed. Give the transition window back to the transition.
+            let incomingWindow = incoming[seg.id].flatMap { effectiveTransitionDuration[$0.id] } ?? 0
+            let outgoingWindow = outgoing[seg.id].flatMap { effectiveTransitionDuration[$0.id] } ?? 0
+            let bodyStart = compStart + incomingWindow / 2
+            let bodyEnd   = compStart + seg.targetRange.duration - outgoingWindow / 2
 
             if bodyStart < bodyEnd {
                 // V6: Attach image layer payload when this segment is an image.
@@ -524,12 +592,16 @@ public actor CompositionBuilder {
             // Transition to next segment (legacy AVPlayer path — best-effort only).
             // The Timeline Runtime handles actual transition blending; these instructions
             // define the time range for the AVFoundation compositor fallback.
-            guard let trans = outgoingTrans, i + 1 < sortedSegs.count else { continue }
+            // LOCAL PATCH (see VENDORED.md #8): only emit a window the media can actually
+            // fill. With no spare footage on either side there is nothing to dissolve
+            // between, and a window there would blend a clip against black — visibly worse
+            // than the hard cut it degrades to instead.
+            guard let trans = outgoingTrans, i + 1 < sortedSegs.count,
+                  trans.trailingSegmentID == sortedSegs[i + 1].id,
+                  let clampedDur = effectiveTransitionDuration[trans.id]
+            else { continue }
             let nextSeg     = sortedSegs[i + 1]
             let boundary    = insertionTimes[i + 1]           // segment boundary
-            let clampedDur  = min(trans.duration,
-                                  min(seg.targetRange.duration,
-                                      nextSeg.targetRange.duration) * 0.5)
             let transStart  = boundary - clampedDur / 2
             let transEnd    = boundary + clampedDur / 2
 

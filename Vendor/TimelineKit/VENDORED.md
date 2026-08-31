@@ -89,6 +89,36 @@ the package. Using it therefore means accepting its export path, which we must c
    `contentOffset.x` to it counted the scroll position twice, so the anchor drifted further
    the further along the timeline the user had scrolled.
 
+7. `Sources/TimelineKitUIiOS/Views/EditorBottomToolbar.swift` — the 轉場 and 調節 secondary
+   panels rendered an inert icon of the category, and 動畫 fell through to `EmptyView()`, so
+   with nothing selected the panel opened blank. All three now say where the tool actually
+   lives (select a segment; tap the badge between two clips).
+
+8. `Sources/TimelineKitRender/Rendering/CompositionBuilder.swift` — transitions could not
+   be exported **at all**. Two separate faults:
+
+   *Invalid instructions.* Each segment's body instruction spanned its whole duration and
+   a transition instruction was appended straddling the boundary, so the three overlapped:
+
+       0.00..4.00 [A]      3.75..4.25 [A,B]      4.00..7.00 [B]
+
+   `AVVideoComposition` requires disjoint, ascending instructions, so the entire
+   composition was rejected with `AVErrorInvalidVideoComposition` (-11841). The bodies are
+   now trimmed back to hand the window to the transition.
+
+   *Nothing to blend.* Each segment was inserted for exactly its own duration, so the two
+   clips never coexist and a cross-fade had no second image. Upstream's own comments call
+   this path "best-effort only" and say it "shows a hard cut" — the blending lives in the
+   preview runtime, not in what gets exported.
+
+   Fixed by widening each side of the boundary into footage outside its in/out points
+   (`spareHead` / `spareTail`), which is the only source of overlap that does not shift the
+   timeline — `buildAudio` inserts main-track audio at raw `targetRange.start`, so
+   compressing the video timeline (the usual way to do transitions) would desynchronise
+   audio. Consequence worth knowing: **a transition needs trimmed clips.** Two untrimmed
+   clips have no spare footage, so the window collapses to zero and the join degrades to a
+   hard cut rather than dissolving against black.
+
 ## Gotchas found while integrating (not patches — call sites must handle these)
 
 - **Canvas presets are all 720-based** (`EditorCanvas.Preset` → 1280×720 etc.), so
