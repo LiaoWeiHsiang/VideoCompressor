@@ -1,0 +1,100 @@
+name: VideoCompressor
+options:
+  bundleIdPrefix: com.weihsiangliao
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    # Supplied from the environment so a personal Apple Team ID is not committed.
+    # See .env.example — scripts/build.sh loads it for you.
+    DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM}
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1"
+targets:
+  VideoCompressor:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Resources/Assets.xcassets
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleDisplayName: 影片壓縮
+        UILaunchScreen: {}
+        NSPhotoLibraryUsageDescription: 需要存取相簿以選取要壓縮的影片
+        NSPhotoLibraryAddUsageDescription: 需要存取相簿以儲存壓縮後的影片
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleURLTypes:
+          - CFBundleURLName: com.weihsiangliao.VideoCompressor
+            CFBundleURLSchemes:
+              - videocompressor
+    entitlements:
+      path: Resources/VideoCompressor.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.weihsiangliao.VideoCompressor
+    dependencies:
+      - target: VideoCompressorShare
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.weihsiangliao.VideoCompressor
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  VideoCompressorShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShareExtension
+        excludes:
+          - Info.plist
+          - ShareExtension.entitlements
+    info:
+      path: ShareExtension/Info.plist
+      properties:
+        CFBundleDisplayName: 影片壓縮
+        NSExtension:
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsMovieWithMaxCount: 1
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionPointIdentifier: com.apple.share-services
+    entitlements:
+      path: ShareExtension/ShareExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.weihsiangliao.VideoCompressor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.weihsiangliao.VideoCompressor.Share
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+  VideoCompressorTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/VideoCompressorTests
+    dependencies:
+      - target: VideoCompressor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.weihsiangliao.VideoCompressorTests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/VideoCompressor.app/VideoCompressor"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  VideoCompressor:
+    build:
+      targets:
+        VideoCompressor: all
+        VideoCompressorShare: all
+        VideoCompressorTests: [test]
+    test:
+      targets:
+        - VideoCompressorTests
