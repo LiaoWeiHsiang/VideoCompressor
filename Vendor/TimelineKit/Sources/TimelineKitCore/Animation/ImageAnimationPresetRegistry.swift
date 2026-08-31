@@ -29,23 +29,23 @@ public enum ImageAnimationPreset: String, CaseIterable, Sendable, Hashable {
 
     public var displayName: String {
         switch self {
-        case .none:           return "无动画"
-        case .slowZoomIn:     return "缓慢放大"
-        case .slowZoomOut:    return "缓慢缩小"
+        case .none:           return "無動畫"
+        case .slowZoomIn:     return "緩慢放大"
+        case .slowZoomOut:    return "緩慢縮小"
         case .panLeft:        return "向左平移"
         case .panRight:       return "向右平移"
         case .panUp:          return "向上平移"
         case .panDown:        return "向下平移"
-        case .gentlePush:     return "轻微推进"
-        case .gentlePullBack: return "轻微后退"
-        case .depthPush:      return "景深推进"
-        case .depthPull:      return "景深后退"
+        case .gentlePush:     return "輕微推進"
+        case .gentlePullBack: return "輕微後退"
+        case .depthPush:      return "景深推進"
+        case .depthPull:      return "景深後退"
         case .depthPanLeft:   return "景深左移"
         case .depthPanRight:  return "景深右移"
         case .depthPanUp:     return "景深上移"
         case .depthPanDown:   return "景深下移"
-        case .depthOrbitLeft:  return "轻微环绕左"
-        case .depthOrbitRight: return "轻微环绕右"
+        case .depthOrbitLeft:  return "輕微環繞左"
+        case .depthOrbitRight: return "輕微環繞右"
         }
     }
 

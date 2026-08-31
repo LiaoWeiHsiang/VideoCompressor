@@ -19,9 +19,9 @@ public actor TTSService {
 
         public var errorDescription: String? {
             switch self {
-            case .voiceNotAvailable: return "无可用语音包"
-            case .writeFailed(let e): return "音频写入失败：\(e.localizedDescription)"
-            case .noOutput:           return "合成无输出"
+            case .voiceNotAvailable: return "無可用語音包"
+            case .writeFailed(let e): return "音訊寫入失敗：\(e.localizedDescription)"
+            case .noOutput:           return "合成無輸出"
             case .cancelled:          return "已取消"
             }
         }
@@ -36,8 +36,8 @@ public actor TTSService {
 
         public var displayName: String {
             switch self {
-            case .female: return "女声"
-            case .male:   return "男声"
+            case .female: return "女聲"
+            case .male:   return "男聲"
             }
         }
 

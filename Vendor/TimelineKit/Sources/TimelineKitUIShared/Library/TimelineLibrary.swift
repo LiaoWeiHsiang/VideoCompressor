@@ -287,7 +287,7 @@ public struct TimelineLibrary: Sendable {
     /// 把 timeline 保存为库内项目（无名称包装；保留旧签名兼容）。
     @discardableResult
     public func saveProject(_ timeline: EditorTimeline, projectID: UUID = UUID()) throws -> UUID {
-        try saveProject(LibraryProject(id: projectID, name: "未命名项目", timeline: timeline))
+        try saveProject(LibraryProject(id: projectID, name: "未命名專案", timeline: timeline))
     }
 
     /// 加载库内某项目（兼容旧 `.tlkproj`：纯 EditorTimeline 时回退名称）。
@@ -356,9 +356,9 @@ public enum TimelineLibraryError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .notABundle(let url): return "\(url.lastPathComponent) 不是有效的资源库"
+        case .notABundle(let url): return "\(url.lastPathComponent) 不是有效的資源庫"
         case .sourceMissing: return "源素材不存在"
-        case .corruptProject(let id): return "项目 \(id) 无法解析"
+        case .corruptProject(let id): return "專案 \(id) 無法解析"
         }
     }
 }

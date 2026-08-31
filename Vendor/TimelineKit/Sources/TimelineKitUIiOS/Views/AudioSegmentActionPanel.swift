@@ -31,7 +31,7 @@ struct AudioSegmentActionPanel: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 20) {
                 // 编辑音频 → opens full AudioEditPanel
-                panelItem("编辑音频", icon: "waveform", enabled: true) {
+                panelItem("編輯音訊", icon: "waveform", enabled: true) {
                     store.selection.editingSegmentID = segmentID
                 }
 
@@ -41,13 +41,13 @@ struct AudioSegmentActionPanel: View {
                 }
 
                 // 删除
-                panelItem("删除", icon: "trash", enabled: !trackIsLocked) {
+                panelItem("刪除", icon: "trash", enabled: !trackIsLocked) {
                     store.deleteSegment(id: segmentID)
                 }
 
                 // 静音 / 取消静音
                 panelItem(
-                    isMuted ? "取消静音" : "静音",
+                    isMuted ? "取消靜音" : "靜音",
                     icon: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                     enabled: true
                 ) {
@@ -55,7 +55,7 @@ struct AudioSegmentActionPanel: View {
                 }
 
                 // 调速
-                panelItem("调速", icon: "gauge.with.needle", enabled: false) {}
+                panelItem("調速", icon: "gauge.with.needle", enabled: false) {}
 
                 if let onDismiss {
                     Button(action: onDismiss) {

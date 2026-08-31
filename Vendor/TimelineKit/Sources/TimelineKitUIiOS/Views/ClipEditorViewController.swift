@@ -829,18 +829,18 @@ final class TrackLabelRowView: UIView {
         Self.style(button: lockBtn,
                    icon: track.isLocked ? "lock.fill" : "lock.open",
                    tint: track.isLocked ? .systemYellow : .white.withAlphaComponent(0.65),
-                   label: track.isLocked ? "解锁轨道" : "锁定轨道")
+                   label: track.isLocked ? "解鎖軌道" : "鎖定軌道")
         if let h = hideBtn {
             Self.style(button: h,
                        icon: track.isHidden ? "eye.slash.fill" : "eye",
                        tint: track.isHidden ? .systemOrange : .white.withAlphaComponent(0.65),
-                       label: track.isHidden ? "显示轨道" : "隐藏轨道")
+                       label: track.isHidden ? "顯示軌道" : "隱藏軌道")
         }
         if let m = muteBtn {
             Self.style(button: m,
                        icon: track.isMuted ? "speaker.slash.fill" : "speaker.wave.2",
                        tint: track.isMuted ? .systemRed : .white.withAlphaComponent(0.65),
-                       label: track.isMuted ? "取消静音" : "静音轨道")
+                       label: track.isMuted ? "取消靜音" : "靜音軌道")
         }
     }
 
@@ -855,7 +855,7 @@ final class TrackLabelRowView: UIView {
         Self.style(button: lock,
                    icon: track.isLocked ? "lock.fill" : "lock.open",
                    tint: track.isLocked ? .systemYellow : .white.withAlphaComponent(0.65),
-                   label: track.isLocked ? "解锁轨道" : "锁定轨道")
+                   label: track.isLocked ? "解鎖軌道" : "鎖定軌道")
         lock.addAction(UIAction { [weak self] _ in
             self?.haptic.selectionChanged()
             self?.onToggleLock?()
@@ -869,7 +869,7 @@ final class TrackLabelRowView: UIView {
             Self.style(button: hide,
                        icon: track.isHidden ? "eye.slash.fill" : "eye",
                        tint: track.isHidden ? .systemOrange : .white.withAlphaComponent(0.65),
-                       label: track.isHidden ? "显示轨道" : "隐藏轨道")
+                       label: track.isHidden ? "顯示軌道" : "隱藏軌道")
             hide.addAction(UIAction { [weak self] _ in
                 self?.haptic.selectionChanged()
                 self?.onToggleHidden?()
@@ -884,7 +884,7 @@ final class TrackLabelRowView: UIView {
             Self.style(button: mute,
                        icon: track.isMuted ? "speaker.slash.fill" : "speaker.wave.2",
                        tint: track.isMuted ? .systemRed : .white.withAlphaComponent(0.65),
-                       label: track.isMuted ? "取消静音" : "静音轨道")
+                       label: track.isMuted ? "取消靜音" : "靜音軌道")
             mute.addAction(UIAction { [weak self] _ in
                 self?.haptic.selectionChanged()
                 self?.onToggleMute?()
@@ -899,7 +899,7 @@ final class TrackLabelRowView: UIView {
             let cfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
             plus.setImage(UIImage(systemName: "plus.circle.fill", withConfiguration: cfg), for: .normal)
             plus.tintColor = UIColor.white.withAlphaComponent(0.55)
-            plus.accessibilityLabel = "新建\(Self.labelText(for: track.kind))轨道"
+            plus.accessibilityLabel = "新建\(Self.labelText(for: track.kind))軌道"
             plus.addAction(UIAction { [weak self] _ in
                 self?.onAddTrack?()
             }, for: .touchUpInside)
@@ -957,12 +957,12 @@ final class TrackLabelRowView: UIView {
 
     static func labelText(for kind: EditorTrack.Kind) -> String {
         switch kind {
-        case .video:      return "视频"
-        case .overlay:    return "叠加"
+        case .video:      return "影片"
+        case .overlay:    return "疊加"
         case .text:       return "文字"
         case .subtitle:   return "字幕"
-        case .audio:      return "音频"
-        case .adjustment: return "调节"
+        case .audio:      return "音訊"
+        case .adjustment: return "調節"
         }
     }
 }

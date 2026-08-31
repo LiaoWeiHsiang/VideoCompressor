@@ -42,18 +42,18 @@ struct SegmentReplacePanel: View {
                 }
 
                 // 删除
-                panelItem("删除", icon: "trash") {
+                panelItem("刪除", icon: "trash") {
                     store.deleteSegment(id: segmentID)
                 }
 
                 // 替换素材
-                panelItem("替换素材", icon: "arrow.triangle.2.circlepath") {
+                panelItem("替換素材", icon: "arrow.triangle.2.circlepath") {
                     showPicker = true
                 }
 
                 // v3 P2 (audio-feature-spec §9): detach audio.
                 panelItem(
-                    "分离音视频",
+                    "分離音訊",
                     icon: "waveform.path.badge.minus",
                     enabled: !isVideoAudioMuted && !isDetachingAudio
                 ) {
@@ -63,7 +63,7 @@ struct SegmentReplacePanel: View {
                 // v3 P3 (audio-feature-spec §11): toggle the segment's native audio.
                 // Icon flips on/off; tap immediately commits via setVideoMuted.
                 panelItem(
-                    isVideoAudioMuted ? "原音 关" : "原音 开",
+                    isVideoAudioMuted ? "原音 關" : "原音 開",
                     icon: isVideoAudioMuted ? "speaker.slash.fill" : "speaker.wave.2.fill"
                 ) {
                     store.setVideoMuted(segmentID: segmentID, isMuted: !isVideoAudioMuted)
@@ -72,7 +72,7 @@ struct SegmentReplacePanel: View {
                 if isDetachingAudio {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small).tint(.white)
-                        Text("分离中…")
+                        Text("分離中…")
                             .font(.system(size: 11))
                             .foregroundStyle(Color.white.opacity(0.75))
                     }
@@ -98,14 +98,14 @@ struct SegmentReplacePanel: View {
             Divider().background(Color.white.opacity(0.08))
         }
         .alert(
-            "分离音视频失败",
+            "分離音訊失敗",
             isPresented: Binding(
                 get: { detachErrorMessage != nil },
                 set: { if !$0 { detachErrorMessage = nil } }
             ),
             presenting: detachErrorMessage
         ) { _ in
-            Button("确定") { detachErrorMessage = nil }
+            Button("確定") { detachErrorMessage = nil }
         } message: { msg in
             Text(msg)
         }
@@ -133,10 +133,10 @@ struct SegmentReplacePanel: View {
                 )
             }
         }
-        .alert("素材时长不足", isPresented: $showInsufficientDurationAlert) {
+        .alert("素材時長不足", isPresented: $showInsufficientDurationAlert) {
             Button("好") { }
         } message: {
-            Text("请选择更长的视频素材")
+            Text("請選擇更長的影片素材")
         }
     }
 
@@ -175,9 +175,9 @@ struct SegmentReplacePanel: View {
         do {
             _ = try await store.detachAudio(fromVideoSegmentID: segmentID)
         } catch let err as AudioExtractor.Failure {
-            await MainActor.run { detachErrorMessage = err.errorDescription ?? "提取失败" }
+            await MainActor.run { detachErrorMessage = err.errorDescription ?? "提取失敗" }
         } catch let err as EditorStore.DetachAudioError {
-            await MainActor.run { detachErrorMessage = err.errorDescription ?? "分离失败" }
+            await MainActor.run { detachErrorMessage = err.errorDescription ?? "分離失敗" }
         } catch {
             await MainActor.run { detachErrorMessage = error.localizedDescription }
         }

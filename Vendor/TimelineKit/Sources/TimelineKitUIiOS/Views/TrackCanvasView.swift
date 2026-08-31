@@ -590,12 +590,12 @@ final class TrackRowView: UIView {
 
     private static func pendingHintTitle(for kind: EditorTrack.Kind) -> String {
         switch kind {
-        case .overlay:    return "添加画中画"
-        case .audio:      return "添加音频"
-        case .text:       return "添加文字"
-        case .subtitle:   return "添加字幕"
-        case .adjustment: return "添加调节"
-        case .video:      return "添加主轨素材"
+        case .overlay:    return "新增畫中畫"
+        case .audio:      return "新增音訊"
+        case .text:       return "新增文字"
+        case .subtitle:   return "新增字幕"
+        case .adjustment: return "新增調節"
+        case .video:      return "新增主軌素材"
         }
     }
 

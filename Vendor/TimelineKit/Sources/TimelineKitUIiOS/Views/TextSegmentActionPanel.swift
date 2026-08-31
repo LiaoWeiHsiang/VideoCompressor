@@ -48,26 +48,26 @@ struct TextSegmentActionPanel: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 20) {
                 // 样式 → opens full TextEditPanel
-                panelItem("样式", icon: "textformat", enabled: true) {
+                panelItem("樣式", icon: "textformat", enabled: true) {
                     store.selection.editingSegmentID = segmentID
                 }
 
                 // v4 (text-typography-spec §4.3): copy/paste style
-                panelItem("复制样式", icon: "doc.on.clipboard", enabled: isTextOrSubtitle) {
+                panelItem("複製樣式", icon: "doc.on.clipboard", enabled: isTextOrSubtitle) {
                     store.copyStyle(segmentID: segmentID)
-                    ToastContext.shared.show("已复制样式", icon: "doc.on.clipboard",
+                    ToastContext.shared.show("已複製樣式", icon: "doc.on.clipboard",
                         style: .success, duration: 1.5, position: .top)
                 }
 
-                panelItem("粘贴样式", icon: "arrow.turn.down.right", enabled: store.canPasteStyle(toSegmentID: segmentID)) {
+                panelItem("貼上樣式", icon: "arrow.turn.down.right", enabled: store.canPasteStyle(toSegmentID: segmentID)) {
                     store.pasteStyle(segmentID: segmentID)
-                    ToastContext.shared.show("已粘贴样式", icon: "arrow.turn.down.right",
+                    ToastContext.shared.show("已貼上樣式", icon: "arrow.turn.down.right",
                         style: .success, duration: 1.5, position: .top)
                 }
 
                 // v4 (bulk-style-apply-spec §4.1): 应用到本轨同类
                 panelItem(
-                    "应用到本轨同类",
+                    "套用到本軌同類",
                     icon: "doc.on.doc",
                     enabled: bulkTargetCount > 0 && !trackIsLocked
                 ) {
@@ -75,7 +75,7 @@ struct TextSegmentActionPanel: View {
                 }
 
                 // 文本朗读 → only for subtitle segments
-                panelItem("文本朗读", icon: "speaker.wave.2", enabled: isSubtitle) {
+                panelItem("文字朗讀", icon: "speaker.wave.2", enabled: isSubtitle) {
                     store.ttsConfigSheetTargets = [segmentID]
                 }
 
@@ -85,7 +85,7 @@ struct TextSegmentActionPanel: View {
                 }
 
                 // 删除
-                panelItem("删除", icon: "trash", enabled: !trackIsLocked) {
+                panelItem("刪除", icon: "trash", enabled: !trackIsLocked) {
                     store.deleteSegment(id: segmentID)
                 }
 
@@ -108,11 +108,11 @@ struct TextSegmentActionPanel: View {
             Divider().background(Color.white.opacity(0.08))
         }
         // v4 (bulk-style-apply-spec §2.5): two-step confirmation.
-        .alert("应用到本轨同类", isPresented: $showBulkConfirm) {
+        .alert("套用到本軌同類", isPresented: $showBulkConfirm) {
             Button("取消", role: .cancel) {}
-            Button("确认应用") { performBulkApply() }
+            Button("確認套用") { performBulkApply() }
         } message: {
-            Text("将当前样式应用到本条轨道的其他 \(bulkTargetCount) 个同类片段。此操作可撤销。")
+            Text("將當前樣式套用到本條軌道的其他 \(bulkTargetCount) 個同類片段。此操作可撤銷。")
         }
     }
 
@@ -125,7 +125,7 @@ struct TextSegmentActionPanel: View {
         )
         if count > 0 {
             ToastContext.shared.show(
-                "已应用到 \(count) 个片段",
+                "已套用到 \(count) 個片段",
                 icon: "checkmark.circle",
                 style: .success,
                 duration: 2.0,

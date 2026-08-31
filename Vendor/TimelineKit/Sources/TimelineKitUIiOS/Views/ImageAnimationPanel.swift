@@ -33,8 +33,8 @@ struct ImageAnimationPanel: View {
     // MARK: - Tab bar
 
     private enum Tab: String, CaseIterable {
-        case motion = "基础动画"
-        case depth  = "景深动画"
+        case motion = "基礎動畫"
+        case depth  = "景深動畫"
     }
 
     private var tabBar: some View {

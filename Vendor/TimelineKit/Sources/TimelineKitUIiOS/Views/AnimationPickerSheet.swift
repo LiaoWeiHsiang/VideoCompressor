@@ -100,8 +100,8 @@ struct AnimationPickerSheet: View {
         switch selectedTab {
         case .in:
             return [
-                .init(id: "none",        name: "无",    icon: "xmark.circle",          semantic: nil),
-                .init(id: "fadeIn",      name: "渐显",   icon: "sun.horizon",           semantic: .fadeIn),
+                .init(id: "none",        name: "無",    icon: "xmark.circle",          semantic: nil),
+                .init(id: "fadeIn",      name: "漸顯",   icon: "sun.horizon",           semantic: .fadeIn),
                 .init(id: "slideInL",    name: "向右滑入", icon: "arrow.right.to.line",  semantic: .slideInLeft),
                 .init(id: "slideInR",    name: "向左滑入", icon: "arrow.left.to.line",   semantic: .slideInRight),
                 .init(id: "slideInU",    name: "向下滑入", icon: "arrow.down.to.line",   semantic: .slideInUp),
@@ -110,27 +110,27 @@ struct AnimationPickerSheet: View {
             ]
         case .out:
             return [
-                .init(id: "none",        name: "无",    icon: "xmark.circle",           semantic: nil),
-                .init(id: "fadeOut",     name: "渐隐",   icon: "moon",                  semantic: .fadeOut),
+                .init(id: "none",        name: "無",    icon: "xmark.circle",           semantic: nil),
+                .init(id: "fadeOut",     name: "漸隱",   icon: "moon",                  semantic: .fadeOut),
                 .init(id: "slideOutL",   name: "向右退出", icon: "arrow.right.to.line",  semantic: .slideOutLeft),
                 .init(id: "slideOutR",   name: "向左退出", icon: "arrow.left.to.line",   semantic: .slideOutRight),
-                .init(id: "zoomOut",     name: "缩小",   icon: "minus.magnifyingglass",  semantic: .zoomOut),
+                .init(id: "zoomOut",     name: "縮小",   icon: "minus.magnifyingglass",  semantic: .zoomOut),
             ]
         case .combo:
             return [
-                .init(id: "none",            name: "无",    icon: "xmark.circle",             semantic: nil),
+                .init(id: "none",            name: "無",    icon: "xmark.circle",             semantic: nil),
                 // Ken Burns 基础动画
-                .init(id: "slowZoom",        name: "缓慢放大", icon: "plus.magnifyingglass",   semantic: .slowZoom),
-                .init(id: "slowZoomOut",     name: "缓慢缩小", icon: "minus.magnifyingglass",  semantic: .slowZoomOut),
+                .init(id: "slowZoom",        name: "緩慢放大", icon: "plus.magnifyingglass",   semantic: .slowZoom),
+                .init(id: "slowZoomOut",     name: "緩慢縮小", icon: "minus.magnifyingglass",  semantic: .slowZoomOut),
                 .init(id: "panLeft",         name: "向左平移", icon: "arrow.left",             semantic: .panLeft),
                 .init(id: "panRight",        name: "向右平移", icon: "arrow.right",            semantic: .panRight),
                 .init(id: "drift",           name: "漂移",   icon: "wind",                    semantic: .drift),
                 .init(id: "float",           name: "漂浮",   icon: "cloud",                   semantic: .float),
                 // 景深动画（从 ImageAnimationPreset 迁移）
-                .init(id: "depthPush",       name: "景深推进", icon: "arrow.up.forward.circle",   semantic: .depthPush),
-                .init(id: "depthPull",       name: "景深后退", icon: "arrow.down.backward.circle", semantic: .depthPull),
-                .init(id: "depthOrbitLeft",  name: "环绕左",  icon: "arrow.counterclockwise",    semantic: .depthOrbitLeft),
-                .init(id: "depthOrbitRight", name: "环绕右",  icon: "arrow.clockwise",           semantic: .depthOrbitRight),
+                .init(id: "depthPush",       name: "景深推進", icon: "arrow.up.forward.circle",   semantic: .depthPush),
+                .init(id: "depthPull",       name: "景深後退", icon: "arrow.down.backward.circle", semantic: .depthPull),
+                .init(id: "depthOrbitLeft",  name: "環繞左",  icon: "arrow.counterclockwise",    semantic: .depthOrbitLeft),
+                .init(id: "depthOrbitRight", name: "環繞右",  icon: "arrow.clockwise",           semantic: .depthOrbitRight),
             ]
         }
     }
@@ -164,14 +164,14 @@ struct AnimationPickerSheet: View {
         .frame(height: 320)
         .animation(.easeInOut(duration: 0.18), value: showDurationSlider)
         .background(Color(white: 0.13))
-        .alert("切换到组合动画", isPresented: $showConflictAlert, presenting: pendingComboSemantic) { sem in
-            Button("确认", role: .destructive) {
+        .alert("切換到組合動畫", isPresented: $showConflictAlert, presenting: pendingComboSemantic) { sem in
+            Button("確認", role: .destructive) {
                 commitAnimation(semantic: sem, timing: .combo)
                 pendingComboSemantic = nil
             }
             Button("取消", role: .cancel) { pendingComboSemantic = nil }
         } message: { _ in
-            Text("设置组合动画将清除已有的入场和出场动画")
+            Text("設定組合動畫將清除已有的入場和出場動畫")
         }
     }
 
@@ -186,7 +186,7 @@ struct AnimationPickerSheet: View {
 
     private var header: some View {
         HStack {
-            Text("动画")
+            Text("動畫")
                 .font(.headline)
                 .foregroundStyle(.white)
             Spacer()
@@ -251,7 +251,7 @@ struct AnimationPickerSheet: View {
     private var durationSlider: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("时长")
+                Text("時長")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -271,7 +271,7 @@ struct AnimationPickerSheet: View {
                 .tint(durationOverflow ? .red : .white)
             }
             if durationOverflow {
-                Text("动画时长过长，已自动压缩")
+                Text("動畫時長過長，已自動壓縮")
                     .font(.caption2)
                     .foregroundStyle(.red.opacity(0.8))
             }
@@ -282,9 +282,9 @@ struct AnimationPickerSheet: View {
 
     private func tabLabel(_ timing: AnimationTiming) -> String {
         switch timing {
-        case .in:    return "入场"
-        case .out:   return "出场"
-        case .combo: return "组合"
+        case .in:    return "入場"
+        case .out:   return "出場"
+        case .combo: return "組合"
         }
     }
 

@@ -8,14 +8,14 @@ import TimelineKitUIShared
 /// All top-level editing categories.
 /// Only `isEnabled` cases appear in the toolbar — set false to hide unfinished features.
 public enum EditorToolCategory: String, CaseIterable, Identifiable {
-    case clip       = "剪辑"
-    case audio      = "音频"   // V2: hidden until audio track editing is complete
+    case clip       = "剪輯"
+    case audio      = "音訊"   // V2: hidden until audio track editing is complete
     case text       = "文字"   // V2: hidden — subtitle editing is context-triggered
-    case sticker    = "贴纸"   // V3
+    case sticker    = "貼紙"   // V3
     case effects    = "特效"   // V3
-    case transition = "转场"
-    case adjust     = "调节"
-    case animation  = "动画"   // V7: clip-level entrance/exit/combo animations
+    case transition = "轉場"
+    case adjust     = "調節"
+    case animation  = "動畫"   // V7: clip-level entrance/exit/combo animations
 
     public var id: String { rawValue }
 
@@ -137,27 +137,27 @@ struct EditorSecondaryToolPanel: View {
                 guard let id = selID else { return }
                 store.splitSegment(id: id, at: store.selection.playheadTime)
             }
-            toolButton("删除", icon: "trash", enabled: hasSelection) {
+            toolButton("刪除", icon: "trash", enabled: hasSelection) {
                 guard let id = selID else { return }
                 store.deleteSegment(id: id)
             }
-            toolButton("复制", icon: "doc.on.doc", enabled: hasSelection) {
+            toolButton("複製", icon: "doc.on.doc", enabled: hasSelection) {
                 guard let id = selID else { return }
                 store.copySegment(id: id)
             }
-            toolButton("粘贴", icon: "doc.on.clipboard", enabled: store.hasClipboardSegment) {
+            toolButton("貼上", icon: "doc.on.clipboard", enabled: store.hasClipboardSegment) {
                 store.pasteSegment(after: selID)
             }
 
         case .transition:
-            toolItem("转场", icon: "arrow.left.and.right.square")
+            toolItem("轉場", icon: "arrow.left.and.right.square")
 
         case .adjust:
             // Curves / HSL / noise-reduction are V3 — hidden until shipped.
-            toolItem("调节", icon: "slider.horizontal.3")
+            toolItem("調節", icon: "slider.horizontal.3")
 
         case .text:
-            toolButton("新建文本", icon: "textformat", enabled: true) {
+            toolButton("新建文字", icon: "textformat", enabled: true) {
                 store.createNewTextSegment()
             }
             toolButton("新建字幕", icon: "text.bubble", enabled: true) {

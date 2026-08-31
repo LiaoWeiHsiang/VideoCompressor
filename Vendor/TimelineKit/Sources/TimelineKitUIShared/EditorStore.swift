@@ -154,14 +154,14 @@ public final class EditorStore: @MainActor Identifiable {
 
     // MARK: - Text/Subtitle
 
-    public func mutateTextContent(segmentID: UUID, label: String = "编辑文字", _ modify: (inout SegmentContent.TextContent) -> Void) { document.mutateTextContent(segmentID: segmentID, label: label, modify) }
-    public func mutateTextStyle(segmentID: UUID, label: String = "修改样式", _ modify: (inout TextStyle) -> Void) { document.mutateTextStyle(segmentID: segmentID, label: label, modify) }
+    public func mutateTextContent(segmentID: UUID, label: String = "編輯文字", _ modify: (inout SegmentContent.TextContent) -> Void) { document.mutateTextContent(segmentID: segmentID, label: label, modify) }
+    public func mutateTextStyle(segmentID: UUID, label: String = "修改樣式", _ modify: (inout TextStyle) -> Void) { document.mutateTextStyle(segmentID: segmentID, label: label, modify) }
     public func updateTextContent(segmentID: UUID, text: String) { document.updateTextContent(segmentID: segmentID, text: text) }
     public func updateTextPosition(segmentID: UUID, position: NormalizedPoint) { document.updateTextPosition(segmentID: segmentID, position: position) }
     public func updateSubtitlePosition(segmentID: UUID, positionY: Double) { document.updateSubtitlePosition(segmentID: segmentID, positionY: positionY) }
     public func updateTextStyle(segmentID: UUID, style: TextStyle) { document.updateTextStyle(segmentID: segmentID, style: style) }
-    public func mutateSubtitleContent(segmentID: UUID, label: String = "编辑字幕", _ modify: (inout SegmentContent.SubtitleContent) -> Void) { document.mutateSubtitleContent(segmentID: segmentID, label: label, modify) }
-    public func mutateSubtitleStyle(segmentID: UUID, label: String = "修改字幕样式", _ modify: (inout TextStyle) -> Void) { document.mutateSubtitleStyle(segmentID: segmentID, label: label, modify) }
+    public func mutateSubtitleContent(segmentID: UUID, label: String = "編輯字幕", _ modify: (inout SegmentContent.SubtitleContent) -> Void) { document.mutateSubtitleContent(segmentID: segmentID, label: label, modify) }
+    public func mutateSubtitleStyle(segmentID: UUID, label: String = "修改字幕樣式", _ modify: (inout TextStyle) -> Void) { document.mutateSubtitleStyle(segmentID: segmentID, label: label, modify) }
 
     // MARK: - Live preview with coordinator
 
@@ -316,7 +316,7 @@ public final class EditorStore: @MainActor Identifiable {
 
     @discardableResult public func addVisualSegment(localURL: URL, nativeDuration: Double?, targetTrackID: UUID? = nil) -> UUID? {
         let segmentID = UUID(); let playheadTime = selection.playheadTime
-        mutate("添加素材") { tl in
+        mutate("新增素材") { tl in
             let trackIndex: Int?
             if let targetTrackID {
                 trackIndex = tl.tracks.firstIndex { $0.id == targetTrackID && !$0.isMainTrack && $0.kind == .overlay }
@@ -329,7 +329,7 @@ public final class EditorStore: @MainActor Identifiable {
             if let idx = trackIndex {
                 ti = idx
             } else {
-                let mainTrack = EditorTrack(id: UUID(), kind: .video, label: "视频", zPosition: 0, isMainTrack: true)
+                let mainTrack = EditorTrack(id: UUID(), kind: .video, label: "影片", zPosition: 0, isMainTrack: true)
                 tl.tracks.append(mainTrack)
                 ti = tl.tracks.count - 1
             }
@@ -407,7 +407,7 @@ public final class EditorStore: @MainActor Identifiable {
     public enum DetachAudioError: Swift.Error, LocalizedError {
         case notVideoSegment, assetURLMissing
         public var errorDescription: String? {
-            switch self { case .notVideoSegment: return "请选择视频片段"; case .assetURLMissing: return "视频素材不可用" }
+            switch self { case .notVideoSegment: return "請選擇影片片段"; case .assetURLMissing: return "影片素材不可用" }
         }
     }
 
@@ -427,7 +427,7 @@ public final class EditorStore: @MainActor Identifiable {
         let audioSourceStart = seg.sourceRange?.start ?? 0
         let audioSourceDur = seg.sourceRange?.duration ?? seg.targetRange.duration
         let audioSegment = EditorSegment(id: audioSegmentID, materialID: extractedAssetID, sourceRange: TimeRange(start: audioSourceStart, duration: audioSourceDur), targetRange: seg.targetRange, content: .audio(SegmentContent.AudioContent(volume: 1.0)))
-        mutate("分离音视频") { tl in
+        mutate("分離音訊") { tl in
             tl.materials.add(audioAsset)
             Self.allocateAudioTrackInline(in: &tl, segment: audioSegment)
             tl.updateSegment(id: id) { v in guard case .video(var c) = v.content else { return }; c.isMuted = true; v.content = .video(c) }
@@ -500,7 +500,7 @@ public final class EditorStore: @MainActor Identifiable {
 
     // MARK: - Text Segment Creation
 
-    @discardableResult public func createNewTextSegment(defaultText: String = "点击编辑文本", defaultDuration: Double = 3.0, targetTrackID: UUID? = nil) -> UUID? {
+    @discardableResult public func createNewTextSegment(defaultText: String = "點選編輯文字", defaultDuration: Double = 3.0, targetTrackID: UUID? = nil) -> UUID? {
         let placeholderAssetID = UUID(); let placeholderAsset = EditorAsset(id: placeholderAssetID, type: .placeholder)
         let segmentID = UUID()
         let segment = EditorSegment(id: segmentID, materialID: placeholderAssetID, sourceRange: nil, targetRange: TimeRange(start: selection.playheadTime, duration: defaultDuration), content: .text(SegmentContent.TextContent(text: defaultText, style: .default, position: .center, anchor: .center)))
@@ -512,7 +512,7 @@ public final class EditorStore: @MainActor Identifiable {
         selection.selectOnly(segmentID); return segmentID
     }
 
-    @discardableResult public func createNewSubtitleSegment(defaultText: String = "点击编辑字幕", defaultDuration: Double = 3.0, targetTrackID: UUID? = nil) -> UUID? {
+    @discardableResult public func createNewSubtitleSegment(defaultText: String = "點選編輯字幕", defaultDuration: Double = 3.0, targetTrackID: UUID? = nil) -> UUID? {
         let placeholderAssetID = UUID(); let placeholderAsset = EditorAsset(id: placeholderAssetID, type: .placeholder)
         let segmentID = UUID()
         let segment = EditorSegment(id: segmentID, materialID: placeholderAssetID, sourceRange: nil, targetRange: TimeRange(start: selection.playheadTime, duration: defaultDuration), content: .subtitle(SegmentContent.SubtitleContent(text: defaultText, style: .default)))

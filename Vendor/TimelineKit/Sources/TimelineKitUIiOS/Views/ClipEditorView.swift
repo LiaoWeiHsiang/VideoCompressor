@@ -272,7 +272,7 @@ public struct ClipEditorView: View {
                 }
             }
             ToolbarItem(placement: .title) {
-                Text(store.timeline.metadata.productName ?? "剪辑")
+                Text(store.timeline.metadata.productName ?? "剪輯")
                     .foregroundColor(.white)
             }
         }
@@ -486,7 +486,7 @@ public struct ClipEditorView: View {
                 .background(Color.white.opacity(0.15))
                 .cornerRadius(6)
         }
-        .accessibilityLabel("导出规格：\(store.timeline.effectiveExportConfig.resolution.label)")
+        .accessibilityLabel("匯出規格：\(store.timeline.effectiveExportConfig.resolution.label)")
     }
 }
 

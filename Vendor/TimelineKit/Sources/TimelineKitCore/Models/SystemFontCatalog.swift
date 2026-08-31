@@ -25,7 +25,7 @@ public enum SystemFontCatalog {
     // MARK: - Catalog
 
     public static let pingFang = SystemFontFamily(
-        displayName: "苹方",
+        displayName: "蘋方",
         family: "PingFang SC",
         postScriptByWeight: [
             .thin:     "PingFangSC-Light",
@@ -41,7 +41,7 @@ public enum SystemFontCatalog {
     )
 
     public static let songti = SystemFontFamily(
-        displayName: "宋体",
+        displayName: "宋體",
         family: "Songti SC",
         postScriptByWeight: [
             .thin:  "STSongti-SC-Light",
@@ -54,7 +54,7 @@ public enum SystemFontCatalog {
     )
 
     public static let kaiti = SystemFontFamily(
-        displayName: "楷体",
+        displayName: "楷體",
         family: "Kaiti SC",
         postScriptByWeight: [
             .bold:  "STKaitiSC-Bold",
@@ -65,7 +65,7 @@ public enum SystemFontCatalog {
     )
 
     public static let yuanti = SystemFontFamily(
-        displayName: "圆体",
+        displayName: "圓體",
         family: "Yuanti SC",
         postScriptByWeight: [
             .thin:  "STYuanti-SC-Light",
@@ -78,7 +78,7 @@ public enum SystemFontCatalog {
     )
 
     public static let hanziPen = SystemFontFamily(
-        displayName: "手写",
+        displayName: "手寫",
         family: "HanziPen SC",
         postScriptByWeight: [
             .thin:    "HanziPenSC-W3",

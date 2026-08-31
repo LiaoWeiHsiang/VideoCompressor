@@ -51,7 +51,7 @@ public struct EditorControlBar: View {
             }
             .disabled(isTimelineEmpty)
             .opacity(isTimelineEmpty ? 0.4 : 1.0)
-            .accessibilityLabel("全屏预览")
+            .accessibilityLabel("全屏預覽")
         }
     }
 

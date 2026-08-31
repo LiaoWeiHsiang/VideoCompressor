@@ -39,11 +39,11 @@ struct TextEditPanel: View {
         case font, style, fancy, template, animation, position
         var title: String {
             switch self {
-            case .font:      return "字体"
-            case .style:     return "样式"
+            case .font:      return "字型"
+            case .style:     return "樣式"
             case .fancy:     return "花字"
             case .template:  return "文字模板"
-            case .animation: return "动画"
+            case .animation: return "動畫"
             case .position:  return "位置"
             }
         }
@@ -53,10 +53,10 @@ struct TextEditPanel: View {
         case text, stroke, background, shadow
         var title: String {
             switch self {
-            case .text:       return "文本"
-            case .stroke:     return "描边"
+            case .text:       return "文字"
+            case .stroke:     return "描邊"
             case .background: return "背景"
-            case .shadow:     return "阴影"
+            case .shadow:     return "陰影"
             }
         }
     }
@@ -87,7 +87,7 @@ struct TextEditPanel: View {
                 get: { content?.text ?? "" },
                 set: { updateText($0) }
             )
-            TextField("输入文字…", text: binding)
+            TextField("輸入文字…", text: binding)
                 .font(.body)
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
@@ -187,7 +187,7 @@ struct TextEditPanel: View {
         case .style:     styleTabContent
         case .fancy:     placeholderContent(icon: "sparkles",          title: "花字效果")
         case .template:  placeholderContent(icon: "doc.richtext.fill",  title: "文字模板")
-        case .animation: placeholderContent(icon: "play.rectangle.fill", title: "文字动画")
+        case .animation: placeholderContent(icon: "play.rectangle.fill", title: "文字動畫")
         case .position:  positionTabContent
         }
     }
@@ -218,7 +218,7 @@ struct TextEditPanel: View {
                         let isSelected = (currentFontName == entry.family)
                                       || (currentFontName == nil && entry.family == SystemFontCatalog.pingFang.family)
                         fontCard(entry: entry, weight: currentWeight, isSelected: isSelected) {
-                            mutateStyle(label: "切换字体") {
+                            mutateStyle(label: "切換字型") {
                                 $0.fontName = entry.family
                             }
                         }
@@ -429,7 +429,7 @@ struct TextEditPanel: View {
 
     private var colorPaletteRow: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("颜色")
+            Text("顏色")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Color.white.opacity(0.4))
                 .padding(.horizontal, 14)
@@ -478,7 +478,7 @@ struct TextEditPanel: View {
     private var fontSizeRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("字号")
+                Text("字號")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Color.white.opacity(0.4))
                 Spacer()
@@ -493,7 +493,7 @@ struct TextEditPanel: View {
                 onEditingChanged: { editing in
                     isDraggingFontSlider = editing
                     if !editing {
-                        mutateStyle(label: "调整字号") {
+                        mutateStyle(label: "調整字號") {
                             $0.fontSize = localFontSize
                         }
                     }
@@ -563,7 +563,7 @@ struct TextEditPanel: View {
         let parsed = Double(fontSizeText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? localFontSize
         let clamped = min(max(parsed, 12), 120)
         localFontSize = clamped
-        mutateStyle(label: "调整字号") {
+        mutateStyle(label: "調整字號") {
             $0.fontSize = clamped
         }
     }
@@ -580,7 +580,7 @@ struct TextEditPanel: View {
                     ForEach(weightOptions, id: \.0) { (weight, label) in
                         let isSelected = content?.style.fontWeight == weight
                         Button {
-                            mutateStyle(label: "调整字重") {
+                            mutateStyle(label: "調整字重") {
                                 $0.fontWeight = weight
                             }
                         } label: {
@@ -606,7 +606,7 @@ struct TextEditPanel: View {
 
     private var lineSpacingRow: some View {
         styleSliderRow(
-            title: "行间距",
+            title: "行間距",
             value: content?.style.lineSpacing ?? 0,
             range: 0...30,
             step: 1,
@@ -615,14 +615,14 @@ struct TextEditPanel: View {
                 mutateStyle() { $0.lineSpacing = v }
             },
             commit: { v in
-                mutateStyle(label: "调整行间距") { $0.lineSpacing = v }
+                mutateStyle(label: "調整行間距") { $0.lineSpacing = v }
             }
         )
     }
 
     private var kerningRow: some View {
         styleSliderRow(
-            title: "字间距",
+            title: "字間距",
             value: content?.style.kerning ?? 0,
             range: -5...20,
             step: 0.5,
@@ -631,7 +631,7 @@ struct TextEditPanel: View {
                 mutateStyle() { $0.kerning = v }
             },
             commit: { v in
-                mutateStyle(label: "调整字间距") { $0.kerning = v }
+                mutateStyle(label: "調整字間距") { $0.kerning = v }
             }
         )
     }
@@ -639,14 +639,14 @@ struct TextEditPanel: View {
     private var italicRow: some View {
         let on = content?.style.isItalic ?? false
         return HStack {
-            Text("斜体")
+            Text("斜體")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Color.white.opacity(0.4))
             Spacer()
             Toggle("", isOn: Binding(
                 get: { on },
                 set: { newVal in
-                    mutateStyle(label: "切换斜体") { $0.isItalic = newVal }
+                    mutateStyle(label: "切換斜體") { $0.isItalic = newVal }
                 }
             ))
             .labelsHidden()
@@ -661,18 +661,18 @@ struct TextEditPanel: View {
     private var strokeStyleContent: some View {
         VStack(spacing: 0) {
             styleColorRow(
-                title: "描边颜色",
+                title: "描邊顏色",
                 selected: content?.style.strokeColor,
                 allowNone: true,
                 onSelect: { hex in
-                    mutateStyle(label: "切换描边颜色") {
+                    mutateStyle(label: "切換描邊顏色") {
                         $0.strokeColor = hex
                     }
                 }
             )
             styleDivider
             styleSliderRow(
-                title: "宽度",
+                title: "寬度",
                 value: content?.style.strokeWidth ?? 0,
                 range: 0...10,
                 step: 0.5,
@@ -681,7 +681,7 @@ struct TextEditPanel: View {
                     mutateStyle() { $0.strokeWidth = v }
                 },
                 commit: { v in
-                    mutateStyle(label: "调整描边宽度") { $0.strokeWidth = v }
+                    mutateStyle(label: "調整描邊寬度") { $0.strokeWidth = v }
                 }
             )
         }
@@ -697,14 +697,14 @@ struct TextEditPanel: View {
                 selected: content?.style.backgroundColor,
                 allowNone: true,
                 onSelect: { hex in
-                    mutateStyle(label: "切换底色") {
+                    mutateStyle(label: "切換底色") {
                         $0.backgroundColor = hex
                     }
                 }
             )
             styleDivider
             styleSliderRow(
-                title: "圆角",
+                title: "圓角",
                 value: content?.style.backgroundRadius ?? 0,
                 range: 0...30,
                 step: 1,
@@ -713,12 +713,12 @@ struct TextEditPanel: View {
                     mutateStyle() { $0.backgroundRadius = v }
                 },
                 commit: { v in
-                    mutateStyle(label: "调整圆角") { $0.backgroundRadius = v }
+                    mutateStyle(label: "調整圓角") { $0.backgroundRadius = v }
                 }
             )
             styleDivider
             styleSliderRow(
-                title: "横向间距",
+                title: "橫向間距",
                 value: content?.style.paddingH ?? 0,
                 range: 0...20,
                 step: 1,
@@ -727,12 +727,12 @@ struct TextEditPanel: View {
                     mutateStyle() { $0.paddingH = v }
                 },
                 commit: { v in
-                    mutateStyle(label: "调整横向间距") { $0.paddingH = v }
+                    mutateStyle(label: "調整橫向間距") { $0.paddingH = v }
                 }
             )
             styleDivider
             styleSliderRow(
-                title: "纵向间距",
+                title: "縱向間距",
                 value: content?.style.paddingV ?? 0,
                 range: 0...20,
                 step: 1,
@@ -741,7 +741,7 @@ struct TextEditPanel: View {
                     mutateStyle() { $0.paddingV = v }
                 },
                 commit: { v in
-                    mutateStyle(label: "调整纵向间距") { $0.paddingV = v }
+                    mutateStyle(label: "調整縱向間距") { $0.paddingV = v }
                 }
             )
         }
@@ -753,18 +753,18 @@ struct TextEditPanel: View {
     private var shadowStyleContent: some View {
         VStack(spacing: 0) {
             styleColorRow(
-                title: "阴影颜色",
+                title: "陰影顏色",
                 selected: content?.style.shadowColor,
                 allowNone: true,
                 onSelect: { hex in
-                    mutateStyle(label: "切换阴影颜色") {
+                    mutateStyle(label: "切換陰影顏色") {
                         $0.shadowColor = hex
                     }
                 }
             )
             styleDivider
             styleSliderRow(
-                title: "横向偏移",
+                title: "橫向偏移",
                 value: content?.style.shadowOffsetX ?? 0,
                 range: -10...10,
                 step: 0.5,
@@ -773,12 +773,12 @@ struct TextEditPanel: View {
                     mutateStyle() { $0.shadowOffsetX = v }
                 },
                 commit: { v in
-                    mutateStyle(label: "调整阴影 X") { $0.shadowOffsetX = v }
+                    mutateStyle(label: "調整陰影 X") { $0.shadowOffsetX = v }
                 }
             )
             styleDivider
             styleSliderRow(
-                title: "纵向偏移",
+                title: "縱向偏移",
                 value: content?.style.shadowOffsetY ?? 0,
                 range: -10...10,
                 step: 0.5,
@@ -787,7 +787,7 @@ struct TextEditPanel: View {
                     mutateStyle() { $0.shadowOffsetY = v }
                 },
                 commit: { v in
-                    mutateStyle(label: "调整阴影 Y") { $0.shadowOffsetY = v }
+                    mutateStyle(label: "調整陰影 Y") { $0.shadowOffsetY = v }
                 }
             )
             styleDivider
@@ -801,7 +801,7 @@ struct TextEditPanel: View {
                     mutateStyle() { $0.shadowRadius = v }
                 },
                 commit: { v in
-                    mutateStyle(label: "调整阴影模糊") { $0.shadowRadius = v }
+                    mutateStyle(label: "調整陰影模糊") { $0.shadowRadius = v }
                 }
             )
         }
@@ -936,12 +936,12 @@ struct TextEditPanel: View {
 
     private var layerOrderRow: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("层级")
+            Text("層級")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Color.white.opacity(0.4))
                 .padding(.horizontal, 14)
             HStack(spacing: 8) {
-                layerOrderButton("置顶",   icon: "arrow.up.to.line.compact") { store.bringSegmentToFront(segmentID: segmentID) }
+                layerOrderButton("置頂",   icon: "arrow.up.to.line.compact") { store.bringSegmentToFront(segmentID: segmentID) }
                 layerOrderButton("置底",   icon: "arrow.down.to.line.compact") { store.sendSegmentToBack(segmentID: segmentID) }
                 layerOrderButton("上移",   icon: "arrow.up") { store.bringSegmentForward(segmentID: segmentID) }
                 layerOrderButton("下移",   icon: "arrow.down") { store.sendSegmentBackward(segmentID: segmentID) }
@@ -1067,7 +1067,7 @@ struct TextEditPanel: View {
 
     private var maxCharsPerLineRow: some View {
         HStack {
-            Text("单行最大字数")
+            Text("單行最大字數")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Color.white.opacity(0.4))
             Spacer()
@@ -1159,7 +1159,7 @@ struct TextEditPanel: View {
         }
     }
 
-    private func mutateStyle(label: String = "修改样式", _ modify: @escaping (inout TextStyle) -> Void) {
+    private func mutateStyle(label: String = "修改樣式", _ modify: @escaping (inout TextStyle) -> Void) {
         if content?.isSubtitle == true {
             store.mutateSubtitleStyle(segmentID: segmentID, label: label, modify)
         } else {
@@ -1173,8 +1173,8 @@ struct TextEditPanel: View {
     ]
 
     private let weightOptions: [(FontWeight, String)] = [
-        (.thin, "极细"), (.light, "细体"), (.regular, "常规"),
-        (.medium, "中等"), (.semibold, "半粗"), (.bold, "粗体"), (.black, "超黑")
+        (.thin, "極細"), (.light, "細體"), (.regular, "常規"),
+        (.medium, "中等"), (.semibold, "半粗"), (.bold, "粗體"), (.black, "超黑")
     ]
 
     private let stylePresets: [(color: String, shadow: String)] = [

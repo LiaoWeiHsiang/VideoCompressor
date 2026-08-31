@@ -61,7 +61,7 @@ struct TransitionEditSheet: View {
         var items: [(String, String, String)] = []
         // "无" pinned first in 基础 tab.
         if selectedTab == .basic {
-            items.append((Self.noneID, "无", "xmark.circle"))
+            items.append((Self.noneID, "無", "xmark.circle"))
         }
         if let entry = TransitionPresetRegistry.byCategory.first(where: { $0.category == selectedTab }) {
             for id in entry.ids {
@@ -125,7 +125,7 @@ struct TransitionEditSheet: View {
 
     private var header: some View {
         HStack {
-            Text(context.existingTransition == nil ? "添加转场" : "编辑转场")
+            Text(context.existingTransition == nil ? "新增轉場" : "編輯轉場")
                 .font(.headline)
                 .foregroundStyle(.white)
             Spacer()
@@ -183,7 +183,7 @@ struct TransitionEditSheet: View {
     private var durationSlider: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("时长")
+                Text("時長")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -289,20 +289,20 @@ extension EditorTransition.TransitionType {
 
     var displayName: String {
         switch self {
-        case .fade:             return "叠化"
+        case .fade:             return "疊化"
         case .dissolve:         return "溶解"
         case .slideLeft:        return "左滑"
         case .slideRight:       return "右滑"
         case .slideUp:          return "上滑"
         case .slideDown:        return "下滑"
-        case .zoom:             return "缩放"
+        case .zoom:             return "縮放"
         case .wipe:             return "擦除"
-        case .crossFade:        return "叠化"
-        case .fadeThroughBlack: return "闪黑"
-        case .pushLeft:         return "推进·左"
-        case .pushRight:        return "推进·右"
+        case .crossFade:        return "疊化"
+        case .fadeThroughBlack: return "閃黑"
+        case .pushLeft:         return "推進·左"
+        case .pushRight:        return "推進·右"
         case .zoomIn:           return "放大"
-        case .blurFade:         return "模糊叠化"
+        case .blurFade:         return "模糊疊化"
         }
     }
 

@@ -71,14 +71,14 @@ struct AudioSecondaryPanel: View {
             }
         }
         .alert(
-            "音频处理失败",
+            "音訊處理失敗",
             isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
             ),
             presenting: errorMessage
         ) { _ in
-            Button("确定") { errorMessage = nil }
+            Button("確定") { errorMessage = nil }
         } message: { msg in
             Text(msg)
         }
@@ -91,13 +91,13 @@ struct AudioSecondaryPanel: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 20) {
                 toolButton(
-                    "提取音频",
+                    "提取音訊",
                     icon: "waveform.path.badge.minus",
                     enabled: task == .idle
                 ) { showVideoPicker = true }
 
                 toolButton(
-                    "本地音乐",
+                    "本地音樂",
                     icon: "music.note.list",
                     enabled: task == .idle
                 ) { showAudioImporter = true }
@@ -137,12 +137,12 @@ struct AudioSecondaryPanel: View {
 
     private func handleVideoExtraction(item: PhotosPickerItem) async {
         defer { Task { @MainActor in videoPickerItem = nil } }
-        await MainActor.run { task = .processing("提取音频中…") }
+        await MainActor.run { task = .processing("提取音訊中…") }
 
         guard let movie = try? await item.loadTransferable(type: VideoTransferable.self) else {
             await MainActor.run {
                 task = .idle
-                errorMessage = "无法读取视频文件"
+                errorMessage = "無法讀取影片檔案"
             }
             return
         }
@@ -159,7 +159,7 @@ struct AudioSecondaryPanel: View {
         } catch {
             await MainActor.run {
                 task = .idle
-                errorMessage = "无法分配输出路径：\(error.localizedDescription)"
+                errorMessage = "無法分配輸出路徑：\(error.localizedDescription)"
             }
             return
         }
@@ -183,7 +183,7 @@ struct AudioSecondaryPanel: View {
         } catch let err as AudioExtractor.Failure {
             await MainActor.run {
                 task = .idle
-                errorMessage = err.errorDescription ?? "提取失败"
+                errorMessage = err.errorDescription ?? "提取失敗"
             }
         } catch {
             await MainActor.run {
@@ -194,7 +194,7 @@ struct AudioSecondaryPanel: View {
     }
 
     private func handleAudioImport(pickedURL: URL) async {
-        await MainActor.run { task = .processing("导入音乐中…") }
+        await MainActor.run { task = .processing("匯入音樂中…") }
 
         let scoped = pickedURL.startAccessingSecurityScopedResource()
         defer { if scoped { pickedURL.stopAccessingSecurityScopedResource() } }
@@ -212,7 +212,7 @@ struct AudioSecondaryPanel: View {
         } catch {
             await MainActor.run {
                 task = .idle
-                errorMessage = "无法分配输出路径：\(error.localizedDescription)"
+                errorMessage = "無法分配輸出路徑：\(error.localizedDescription)"
             }
             return
         }
@@ -236,7 +236,7 @@ struct AudioSecondaryPanel: View {
         } catch let err as AudioImporter.Failure {
             await MainActor.run {
                 task = .idle
-                errorMessage = err.errorDescription ?? "导入失败"
+                errorMessage = err.errorDescription ?? "匯入失敗"
             }
         } catch {
             await MainActor.run {

@@ -22,8 +22,8 @@ struct TTSConfigSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("声线") {
-                    Picker("声线", selection: $voice) {
+                Section("聲線") {
+                    Picker("聲線", selection: $voice) {
                         ForEach(TTSService.VoiceKind.allCases, id: \.self) { kind in
                             Text(kind.displayName).tag(kind)
                         }
@@ -31,7 +31,7 @@ struct TTSConfigSheet: View {
                     .pickerStyle(.segmented)
                 }
 
-                Section("语速 \(String(format: "%.1fx", rate))") {
+                Section("語速 \(String(format: "%.1fx", rate))") {
                     HStack {
                         Text("0.5x").font(.caption2).foregroundStyle(.secondary)
                         Slider(value: $rate, in: 0.5...2.0, step: 0.1)
@@ -43,7 +43,7 @@ struct TTSConfigSheet: View {
                     Button {
                         previewVoice()
                     } label: {
-                        Label("试听当前设置", systemImage: "play.circle")
+                        Label("試聽當前設定", systemImage: "play.circle")
                     }
                     .disabled(isGenerating)
 
@@ -54,7 +54,7 @@ struct TTSConfigSheet: View {
                             if isGenerating {
                                 ProgressView().controlSize(.small)
                             }
-                            Text(isGenerating ? "生成中…" : "应用")
+                            Text(isGenerating ? "生成中…" : "套用")
                                 .fontWeight(.semibold)
                         }
                         .frame(maxWidth: .infinity)
@@ -62,13 +62,13 @@ struct TTSConfigSheet: View {
                     .disabled(isGenerating || targetSegmentIDs.isEmpty)
                 }
 
-                Section("说明") {
-                    Text("将为选中的 \(targetSegmentIDs.count) 条文案生成配音音频，自动插入音频轨道。修改文案后可再次进入本面板重新生成。")
+                Section("說明") {
+                    Text("將為選中的 \(targetSegmentIDs.count) 條文案生成配音音訊，自動插入音訊軌道。修改文案後可再次進入本面板重新生成。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("文字朗读")
+            .navigationTitle("文字朗讀")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -80,14 +80,14 @@ struct TTSConfigSheet: View {
                 }
             }
             .alert(
-                "生成失败",
+                "生成失敗",
                 isPresented: Binding(
                     get: { errorMessage != nil },
                     set: { if !$0 { errorMessage = nil } }
                 ),
                 presenting: errorMessage
             ) { _ in
-                Button("确定") { errorMessage = nil }
+                Button("確定") { errorMessage = nil }
             } message: { msg in
                 Text(msg)
             }
@@ -129,7 +129,7 @@ struct TTSConfigSheet: View {
             default: break
             }
         }
-        return "试听一下这个声音的效果"
+        return "試聽一下這個聲音的效果"
     }
 
     private func applyAndGenerate() async {
@@ -144,7 +144,7 @@ struct TTSConfigSheet: View {
             )
             onDismiss()
         } catch let err as TTSService.Failure {
-            errorMessage = err.errorDescription ?? "未知错误"
+            errorMessage = err.errorDescription ?? "未知錯誤"
         } catch {
             errorMessage = error.localizedDescription
         }

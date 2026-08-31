@@ -35,8 +35,8 @@ struct ColorAdjustmentPanel: View {
     // MARK: - Tab bar
 
     private enum Tab: String, CaseIterable {
-        case adjust = "调节"
-        case filter = "滤镜"
+        case adjust = "調節"
+        case filter = "濾鏡"
     }
 
     private var tabBar: some View {
@@ -99,22 +99,22 @@ struct ColorAdjustmentPanel: View {
                 } onEnd: { v in
                     store.setAdjustment(segmentID: segmentID, adjustment: adjusted(brightness: v))
                 }
-                adjustRow("对比度",  value: adjustment.contrast - 1, range: -0.5...0.5, format: "%+.2f") { v in
+                adjustRow("對比度",  value: adjustment.contrast - 1, range: -0.5...0.5, format: "%+.2f") { v in
                     store.previewAdjustment(segmentID: segmentID, adjustment: adjusted(contrast: v + 1))
                 } onEnd: { v in
                     store.setAdjustment(segmentID: segmentID, adjustment: adjusted(contrast: v + 1))
                 }
-                adjustRow("饱和度",  value: adjustment.saturation - 1, range: -1...1,  format: "%+.2f") { v in
+                adjustRow("飽和度",  value: adjustment.saturation - 1, range: -1...1,  format: "%+.2f") { v in
                     store.previewAdjustment(segmentID: segmentID, adjustment: adjusted(saturation: v + 1))
                 } onEnd: { v in
                     store.setAdjustment(segmentID: segmentID, adjustment: adjusted(saturation: v + 1))
                 }
-                adjustRow("色温",   value: adjustment.temperature, range: 2000...9000, format: "%.0f K") { v in
+                adjustRow("色溫",   value: adjustment.temperature, range: 2000...9000, format: "%.0f K") { v in
                     store.previewAdjustment(segmentID: segmentID, adjustment: adjusted(temperature: v))
                 } onEnd: { v in
                     store.setAdjustment(segmentID: segmentID, adjustment: adjusted(temperature: v))
                 }
-                adjustRow("色调",   value: adjustment.tint,        range: -150...150,  format: "%+.0f") { v in
+                adjustRow("色調",   value: adjustment.tint,        range: -150...150,  format: "%+.0f") { v in
                     store.previewAdjustment(segmentID: segmentID, adjustment: adjusted(tint: v))
                 } onEnd: { v in
                     store.setAdjustment(segmentID: segmentID, adjustment: adjusted(tint: v))
@@ -124,7 +124,7 @@ struct ColorAdjustmentPanel: View {
                 } onEnd: { v in
                     store.setAdjustment(segmentID: segmentID, adjustment: adjusted(highlights: v))
                 }
-                adjustRow("阴影",   value: adjustment.shadows,     range: -1...1,      format: "%+.2f") { v in
+                adjustRow("陰影",   value: adjustment.shadows,     range: -1...1,      format: "%+.2f") { v in
                     store.previewAdjustment(segmentID: segmentID, adjustment: adjusted(shadows: v))
                 } onEnd: { v in
                     store.setAdjustment(segmentID: segmentID, adjustment: adjusted(shadows: v))
@@ -170,7 +170,7 @@ struct ColorAdjustmentPanel: View {
     }
 
     private var filterNoneChip: some View {
-        filterChip(label: "无", isSelected: adjustment.filterName == nil) {
+        filterChip(label: "無", isSelected: adjustment.filterName == nil) {
             store.setAdjustment(segmentID: segmentID,
                                 adjustment: adjustedFilter(nil, intensity: 1.0))
         }
@@ -324,7 +324,7 @@ private struct IntensitySliderRow: View {
 
     var body: some View {
         HStack {
-            Text("强度")
+            Text("強度")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Slider(value: $liveIntensity, in: 0...1, step: 0.01, onEditingChanged: { editing in

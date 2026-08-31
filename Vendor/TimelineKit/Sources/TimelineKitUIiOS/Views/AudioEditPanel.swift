@@ -43,7 +43,7 @@ struct AudioEditPanel: View {
     private var assetName: String {
         guard let mid = segment?.materialID,
               let asset = store.timeline.materials[mid],
-              let url = asset.localURL ?? asset.remoteURL else { return "音频片段" }
+              let url = asset.localURL ?? asset.remoteURL else { return "音訊片段" }
         return url.lastPathComponent
     }
 
@@ -189,7 +189,7 @@ struct AudioEditPanel: View {
             HStack(spacing: 6) {
                 Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                     .font(.system(size: 12))
-                Text(isMuted ? "已静音" : "静音此片段")
+                Text(isMuted ? "已靜音" : "靜音此片段")
                     .font(.system(size: 12))
             }
             .foregroundStyle(.white)

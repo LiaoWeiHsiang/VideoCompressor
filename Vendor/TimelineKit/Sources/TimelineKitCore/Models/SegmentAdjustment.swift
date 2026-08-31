@@ -126,17 +126,17 @@ public enum PresetFilter: String, Sendable, Hashable, Codable, CaseIterable {
 
     public var displayName: String {
         switch self {
-        case .naturalVivid:   return "鲜艳"
-        case .naturalWarm:    return "暖调"
-        case .naturalCool:    return "冷调"
+        case .naturalVivid:   return "鮮豔"
+        case .naturalWarm:    return "暖調"
+        case .naturalCool:    return "冷調"
         case .naturalSoft:    return "柔和"
-        case .cinemaChrome:   return "铬黄"
+        case .cinemaChrome:   return "鉻黃"
         case .cinemaNoir:     return "黑白"
         case .cinemaInstant:  return "拍立得"
-        case .cinemaMono:     return "单色"
-        case .retroTransfer:  return "转印"
+        case .cinemaMono:     return "單色"
+        case .retroTransfer:  return "轉印"
         case .retroFade:      return "褪色"
-        case .retroProcess:   return "冲印"
+        case .retroProcess:   return "沖印"
         case .retroSepia:     return "棕褐"
         }
     }
@@ -151,7 +151,7 @@ public enum PresetFilter: String, Sendable, Hashable, Codable, CaseIterable {
 
     public enum Category: String, CaseIterable {
         case natural   = "自然"
-        case cinematic = "电影"
-        case retro     = "复古"
+        case cinematic = "電影"
+        case retro     = "復古"
     }
 }

@@ -135,7 +135,7 @@ struct VideoTrimSelectorSheet: View {
                 stopPlaybackTimer()
                 dismiss()
             } label: {
-                Text("确定")
+                Text("確定")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)

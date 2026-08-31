@@ -23,7 +23,25 @@ the package. Using it therefore means accepting its export path, which we must c
    Upstream unconditionally calls `saveToPhotoLibrary` before handing the file back.
    Removed so the host app decides the destination (Photos / Immich / both).
 
-3. Simplified Chinese UI strings → Traditional Chinese.
+3. Simplified Chinese UI strings → Traditional Chinese (Taiwan), 364 strings across 35
+   files. Converted mechanically with `opencc -c s2twp`, applied to **string literals
+   only** — comments are left in Simplified on purpose, so the diff against upstream stays
+   readable and future merges remain tractable.
+
+   `s2twp` mistranslates several terms in this context; these were corrected by hand and
+   must be re-checked after any upstream merge:
+
+   | s2twp produced | corrected to | why |
+   |---|---|---|
+   | 引數 | 參數 | 引數 is "argument"; the string means "parameters" |
+   | 型別 | 類型 | 型別 is a programming data type, not a UI category |
+   | 分離音影片 | 分離音訊 | 音视频 became nonsense word-by-word |
+   | 應用 | 套用 | 應用 reads as "application"; "apply" is 套用 |
+   | 文本 | 文字 | mainland term |
+   | 幀率 | 影格率 | mainland term |
+
+   To redo after a merge: `../../scripts/to_traditional.py Vendor/TimelineKit/Sources`
+   (needs `brew install opencc`), then re-apply the table above.
 
 4. `Sources/TimelineKitUIiOS/Views/ClipEditorView.swift`
    Added an optional `onRequestExport: ((EditorTimeline) -> Void)?`. Upstream's export

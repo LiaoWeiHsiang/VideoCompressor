@@ -64,7 +64,7 @@ public struct ExportResultView: View {
                     onExport?(jsonData, exportURL, cover)
                 }
             } catch {
-                print("ExportResultView.task导出视频失败:", error.localizedDescription)
+                print("ExportResultView.task匯出影片失敗:", error.localizedDescription)
             }
         }
 //        .fullScreenCover(isPresented: $showPlayer) {
@@ -78,11 +78,11 @@ public struct ExportResultView: View {
     @ViewBuilder
     private var exportingContent: some View {
         VStack(spacing: 24) {
-            Text("努力导出中")
+            Text("努力匯出中")
                 .font(.system(size: 22, weight: .bold))
                 .foregroundColor(.white)
             
-            Text("请保持屏幕一直亮起，不要锁屏或切换 APP")
+            Text("請保持螢幕一直亮起，不要鎖屏或切換 APP")
                 .font(.system(size: 15))
                 .foregroundStyle(.white.opacity(0.82))
 
@@ -127,7 +127,7 @@ public struct ExportResultView: View {
                     .font(.system(size: 36))
                     .foregroundColor(.green)
 
-                Text("已保存到相册")
+                Text("已儲存到相簿")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundColor(.white.opacity(0.9))
             }
@@ -145,7 +145,7 @@ public struct ExportResultView: View {
                         UIApplication.shared.open(url)
                     }
                 } label: {
-                    Text("点击查看")
+                    Text("點選檢視")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -161,7 +161,7 @@ public struct ExportResultView: View {
             Button {
                 onDismiss?() ?? dismiss()
             } label: {
-                Text("再剪一个")
+                Text("再剪一個")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(.white.opacity(0.75))
                     .frame(maxWidth: .infinity)

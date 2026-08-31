@@ -23,8 +23,8 @@ struct ExportConfigSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("分辨率") {
-                    Picker("分辨率", selection: $cfg.resolution) {
+                Section("解析度") {
+                    Picker("解析度", selection: $cfg.resolution) {
                         ForEach(ExportConfig.Resolution.allCases, id: \.self) { r in
                             Text(r.label).tag(r)
                         }
@@ -35,8 +35,8 @@ struct ExportConfigSheet: View {
                     }
                 }
 
-                Section("帧率") {
-                    Picker("帧率", selection: $cfg.fps) {
+                Section("影格率") {
+                    Picker("影格率", selection: $cfg.fps) {
                         ForEach(ExportConfig.FrameRate.allCases, id: \.self) { f in
                             Text(f.label).tag(f)
                         }
@@ -47,8 +47,8 @@ struct ExportConfigSheet: View {
                     }
                 }
 
-                Section("码率") {
-                    Picker("码率", selection: $cfg.bitrateTier) {
+                Section("位元速率") {
+                    Picker("位元速率", selection: $cfg.bitrateTier) {
                         ForEach(ExportConfig.BitrateTier.allCases, id: \.self) { b in
                             Text(b.label).tag(b)
                         }
@@ -59,8 +59,8 @@ struct ExportConfigSheet: View {
                     }
                 }
 
-                Section("高级") {
-                    Toggle("智能 HDR", isOn: $cfg.hdrEnabled)
+                Section("高階") {
+                    Toggle("智慧 HDR", isOn: $cfg.hdrEnabled)
                         .disabled(!isHDRAvailable)
                         .onChange(of: cfg.hdrEnabled) { _, new in
                             store.mutateExportConfig { $0.hdrEnabled = new }
@@ -72,19 +72,19 @@ struct ExportConfigSheet: View {
                 }
 
                 Section {
-                    Button("恢复默认", role: .destructive) {
+                    Button("恢復預設", role: .destructive) {
                         store.resetExportConfigToDefault()
                         cfg = store.timeline.effectiveExportConfig    // 重新按 canvas 派生
                     }
                 }
 
-                Section("说明") {
-                    Text("默认跟随当前画布尺寸与帧率自动匹配最接近档位；可手动选择更高/更低分辨率。导出配置随工程保存，下次打开继续沿用。")
+                Section("說明") {
+                    Text("預設跟隨當前畫布尺寸與影格率自動匹配最接近檔位；可手動選擇更高/更低解析度。匯出配置隨工程儲存，下次開啟繼續沿用。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("导出规格")
+            .navigationTitle("匯出規格")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -109,9 +109,9 @@ struct ExportConfigSheet: View {
 
     private var hdrFootnote: String {
         if isHDRAvailable {
-            return "开启后自动依据原素材色彩动态转译生成 HDR 画质视频"
+            return "開啟後自動依據原素材色彩動態轉譯生成 HDR 畫質影片"
         }
-        return "智能 HDR 即将上线"
+        return "智慧 HDR 即將上線"
     }
 }
 

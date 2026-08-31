@@ -160,7 +160,7 @@ public struct FullScreenPreviewView: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 28))
                         .foregroundStyle(.yellow)
-                    Text("预览构建失败")
+                    Text("預覽構建失敗")
                         .font(.headline)
                         .foregroundStyle(.white)
                     Text(err)
@@ -172,7 +172,7 @@ public struct FullScreenPreviewView: View {
                     ProgressView()
                         .tint(.white)
                         .scaleEffect(1.2)
-                    Text("正在生成同源预览…")
+                    Text("正在生成同源預覽…")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.8))
                 }
