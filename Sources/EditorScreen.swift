@@ -13,9 +13,6 @@ struct EditorSession: Identifiable {
     let id = UUID()
     /// The queue item this session was opened from; the finished edit takes its place.
     let targetItemID: UUID
-    /// Every item whose clip is on the timeline. The edit renders them into a single
-    /// video, so on export they collapse into one queue entry.
-    let mergedItemIDs: [UUID]
     let clips: [EditorScreen.EditorClip]
 }
 
@@ -110,7 +107,7 @@ struct EditorScreen: View {
     private func loadTimeline() async {
         guard store == nil else { return }
 
-        let canvas = await Self.canvasMatchingFirstClip(clips)
+        let canvas = await Self.canvas(matching: clips.first?.url)
         let newStore = EditorStore(timeline: EditorTimeline(canvas: canvas))
         for clip in clips {
             guard let duration = try? await AVURLAsset(url: clip.url).load(.duration),
@@ -121,22 +118,29 @@ struct EditorScreen: View {
     }
 
     /// Picks the canvas shape from the footage rather than defaulting to landscape, so a
-    /// clip shot in portrait is not pillarboxed into black bars before it is even edited.
-    private static func canvasMatchingFirstClip(_ clips: [EditorClip]) async -> EditorCanvas {
-        guard let first = clips.first,
-              let track = try? await AVURLAsset(url: first.url).loadTracks(withMediaType: .video).first,
+    /// clip shot in portrait is not letterboxed into black bars before it is even edited.
+    ///
+    /// `naturalSize` describes how the frames are *stored*, which for phone footage is
+    /// almost always landscape regardless of how the phone was held — the rotation lives in
+    /// `preferredTransform`. Reading naturalSize alone therefore calls every portrait clip
+    /// landscape.
+    static func canvas(matching url: URL?) async -> EditorCanvas {
+        let landscape = EditorCanvas.Preset.landscape_16_9.canvas
+        guard let url,
+              let track = try? await AVURLAsset(url: url).loadTracks(withMediaType: .video).first,
               let size = try? await track.load(.naturalSize),
               let transform = try? await track.load(.preferredTransform)
-        else { return EditorCanvas.Preset.landscape_16_9.canvas }
+        else { return landscape }
 
-        // naturalSize ignores rotation; applying the transform gives what the viewer sees.
+        // Applying the transform uses only its rotation/scale part, which is what swaps
+        // the axes; the sign depends on the rotation direction, hence abs().
         let displayed = size.applying(transform)
         let width = abs(displayed.width)
         let height = abs(displayed.height)
-        guard width > 0, height > 0 else { return EditorCanvas.Preset.landscape_16_9.canvas }
+        guard width > 0, height > 0 else { return landscape }
 
         let ratio = width / height
-        if ratio > 1.15 { return EditorCanvas.Preset.landscape_16_9.canvas }
+        if ratio > 1.15 { return landscape }
         if ratio < 0.87 { return EditorCanvas.Preset.portrait_9_16.canvas }
         return EditorCanvas.Preset.square_1_1.canvas
     }

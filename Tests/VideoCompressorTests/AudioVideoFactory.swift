@@ -16,7 +16,10 @@ enum AudioVideoFactory {
         size: CGSize = CGSize(width: 640, height: 480),
         fps: Int32 = 30,
         sampleRate: Double = 44_100,
-        toneHz: Double = 440
+        toneHz: Double = 440,
+        /// Rotation to record on the track, the way a phone marks portrait footage that is
+        /// still *stored* landscape. `.identity` leaves the frames as written.
+        preferredTransform: CGAffineTransform = .identity
     ) async throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -30,6 +33,7 @@ enum AudioVideoFactory {
             AVVideoHeightKey: size.height
         ])
         videoInput.expectsMediaDataInRealTime = false
+        videoInput.transform = preferredTransform
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(
             assetWriterInput: videoInput,
             sourcePixelBufferAttributes: [
