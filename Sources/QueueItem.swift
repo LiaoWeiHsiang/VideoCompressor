@@ -32,12 +32,19 @@ struct QueueItem: Identifiable {
     /// chosen `DateMode` when this item was compressed. Used when saving to Photos so the
     /// asset's date matches the file's own metadata.
     var outputCreationDate: Date?
+    /// Provenance for items that have no `PHAsset` to read it back from — an edited
+    /// timeline is assembled in memory, so its date and location must be carried across
+    /// explicitly or the saved copy would lose both.
+    var overrideCreationDate: Date?
+    var overrideLocation: CLLocation?
+    /// Shown instead of the source filename for results the user produced in the editor.
+    var displayTitle: String?
 
     var asset: PHAsset? {
         if case .asset(let asset) = source { return asset }
         return nil
     }
 
-    var creationDate: Date? { asset?.creationDate }
-    var location: CLLocation? { asset?.location }
+    var creationDate: Date? { asset?.creationDate ?? overrideCreationDate }
+    var location: CLLocation? { asset?.location ?? overrideLocation }
 }

@@ -25,6 +25,28 @@ the package. Using it therefore means accepting its export path, which we must c
 
 3. Simplified Chinese UI strings → Traditional Chinese.
 
+4. `Sources/TimelineKitUIiOS/Views/ClipEditorView.swift`
+   Added an optional `onRequestExport: ((EditorTimeline) -> Void)?`. Upstream's export
+   button pushes `ExportResultView`, which encodes through `VideoExporter`; this app needs
+   the *timeline* back so it can render it through its own reader/writer pipeline and keep
+   the bitrate ceiling and creation-date handling. Falls through to upstream behaviour when
+   the closure is nil.
+
+## Gotchas found while integrating (not patches — call sites must handle these)
+
+- **Canvas presets are all 720-based** (`EditorCanvas.Preset` → 1280×720 etc.), so
+  `CompositionBuilder.build(from:)` without an explicit `renderSize` exports 720p. Pass
+  `renderSize` — `EditorScreen.exportShortSide` does. Covered by
+  `testEditedOutputStaysAt1080p`.
+- **`renderSubtitles` defaults to `false`**, because during live preview the SwiftUI
+  overlays are the source of truth. Exporting without it silently drops every subtitle and
+  text segment the user added.
+- **`animationTool` and `customVideoCompositorClass` are mutually exclusive**, and
+  `animationTool` only works with `AVAssetExportSession` — it cannot be read through
+  `AVAssetReaderVideoCompositionOutput`. `CompositionBuilder` already routes around this
+  by forcing the unified-compositor path whenever there are overlay segments, so the
+  reader path stays usable. Worth re-checking after any upstream merge.
+
 ## Updating from upstream
 
     git clone https://github.com/tuxi/TimelineKit /tmp/tlk

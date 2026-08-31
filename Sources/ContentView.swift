@@ -16,6 +16,8 @@ struct ContentView: View {
     @State private var isImportingSelection = false
     @State private var isSavingAll = false
     @State private var saveAllConfirmation: String?
+    @State private var isPreparingEditor = false
+    @State private var editorSession: EditorSession?
 
     @StateObject private var compressor = VideoCompressor()
 
@@ -90,6 +92,22 @@ struct ContentView: View {
                             Text(isProcessingQueue ? "壓縮中…" : "開始壓縮")
                         }
                         .disabled(isProcessingQueue || !hasPendingItems)
+
+                        Button {
+                            Task { await openEditor() }
+                        } label: {
+                            if isPreparingEditor {
+                                HStack {
+                                    ProgressView()
+                                    Text("準備中…")
+                                }
+                            } else {
+                                Label("剪輯並壓縮", systemImage: "scissors")
+                            }
+                        }
+                        .disabled(isProcessingQueue || isPreparingEditor || !hasPendingItems)
+                    } footer: {
+                        Text("「剪輯並壓縮」會把佇列中所有待處理的影片依序放上時間軸,可分割、排序、加字幕轉場,匯出時會套用上面選擇的壓縮程度。")
                     }
 
                     if !doneItems.isEmpty {
@@ -135,6 +153,15 @@ struct ContentView: View {
             .sheet(isPresented: $showBrowser) {
                 VideoBrowserView { assets in
                     addToQueue(assets: assets)
+                }
+            }
+            .fullScreenCover(item: $editorSession) { session in
+                EditorScreen(
+                    clips: session.clips,
+                    preset: preset,
+                    dateMode: dateMode
+                ) { result in
+                    addEditedResult(result)
                 }
             }
             .onOpenURL { url in
@@ -222,6 +249,58 @@ struct ContentView: View {
             queue.append(QueueItem(source: .file(VideoFile(url: localURL))))
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Resolves every pending item to a local file, then opens the editor with them.
+    ///
+    /// The resolution has to happen up front: TimelineKit reads clips off disk, and a
+    /// PHAsset still in iCloud has no file until it has been downloaded.
+    private func openEditor() async {
+        isPreparingEditor = true
+        defer { isPreparingEditor = false }
+
+        var clips: [EditorScreen.EditorClip] = []
+        for item in queue where item.status == .pending {
+            do {
+                switch item.source {
+                case .asset(let asset):
+                    let video = try await VideoFile.from(asset: asset)
+                    clips.append(.init(url: video.url, shotAt: asset.creationDate, location: asset.location))
+                case .file(let video):
+                    clips.append(.init(url: video.url, shotAt: item.creationDate, location: item.location))
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+                return
+            }
+        }
+
+        guard !clips.isEmpty else {
+            errorMessage = "沒有可剪輯的影片"
+            return
+        }
+        editorSession = EditorSession(clips: clips)
+    }
+
+    /// The editor hands back an already-compressed file, so the item joins the queue as
+    /// finished — ready for the same "save to Photos" path as everything else.
+    private func addEditedResult(_ result: EditorScreen.EditedResult) {
+        var item = QueueItem(source: .file(VideoFile(url: result.outputURL)))
+        item.status = .done
+        item.outputURL = result.outputURL
+        item.outputSizeText = FileSizeFormatter.string(for: result.outputURL)
+        item.outputCreationDate = result.shotAt
+        item.overrideCreationDate = result.shotAt
+        item.overrideLocation = result.location
+        item.displayTitle = "剪輯結果"
+        queue.append(item)
+
+        Task {
+            let resolution = await VideoMetadata.resolutionString(for: result.outputURL)
+            if let index = queue.firstIndex(where: { $0.id == item.id }) {
+                queue[index].outputResolution = resolution
+            }
         }
     }
 

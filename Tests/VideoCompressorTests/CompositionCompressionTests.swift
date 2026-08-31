@@ -109,6 +109,57 @@ final class CompositionCompressionTests: XCTestCase {
         )
     }
 
+    /// The editor must not quietly downgrade resolution.
+    ///
+    /// Every one of TimelineKit's canvas presets is 720-based, so building without an
+    /// explicit `renderSize` exports 720p. Nothing about the result looks wrong — it is
+    /// simply softer than the source, which is the opposite of what this app promises.
+    @MainActor
+    func testEditedOutputStaysAt1080p() async throws {
+        // Must be AudioVideoFactory, not SyntheticVideoFactory: the latter declares an
+        // audio track it never writes samples to, and reading an empty track through the
+        // audio mix output fails the whole reader.
+        let source = try await AudioVideoFactory.makeVideoWithAudio(
+            seconds: 3,
+            size: CGSize(width: 1920, height: 1080)
+        )
+        defer { try? FileManager.default.removeItem(at: source) }
+
+        let store = try await makeTimeline(clips: [source])
+        let built = try await CompositionBuilder().build(
+            from: store.timeline,
+            renderSubtitles: true,
+            renderSize: CGSize(
+                width: EditorScreen.exportShortSide * 16 / 9,
+                height: EditorScreen.exportShortSide
+            )
+        )
+        print("EDITED_RENDER_SIZE: \(built.videoComposition.renderSize)")
+        XCTAssertEqual(
+            min(built.videoComposition.renderSize.width, built.videoComposition.renderSize.height),
+            1080, accuracy: 1,
+            "timeline rendered below 1080p — the canvas default won over the export size"
+        )
+
+        let compressor = VideoCompressor()
+        let outputURL = try await compressor.compress(
+            source: .composition(
+                built.composition,
+                videoComposition: built.videoComposition,
+                audioMix: built.audioMix,
+                shotAt: nil
+            ),
+            preset: .small
+        )
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let videoTracks = try await AVURLAsset(url: outputURL).loadTracks(withMediaType: .video)
+        let track = try XCTUnwrap(videoTracks.first)
+        let size = try await track.load(.naturalSize)
+        print("EDITED_OUTPUT_SIZE: \(size)")
+        XCTAssertEqual(min(size.width, size.height), 1080, accuracy: 2, "output is not 1080p")
+    }
+
     /// An edited clip must still be dated by when it was *filmed*, both in the file's
     /// metadata and in its name. This is the Immich bug, one layer up: the composition
     /// carries no metadata of its own, so the date has to be threaded through explicitly.

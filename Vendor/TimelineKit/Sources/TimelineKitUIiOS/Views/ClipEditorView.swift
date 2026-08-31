@@ -23,16 +23,23 @@ public struct ClipEditorView: View {
     private let onExport: ((Data, URL, UIImage) -> Void)?
     private let onDraftSave: ((UUID, EditorTimeline) -> Void)?
 
+    /// LOCAL PATCH (see VENDORED.md #4). Hands the finished timeline back to the host
+    /// *before* any encoding happens, so the host can render it through its own pipeline.
+    /// When nil, the built-in `ExportResultView` runs as upstream intends.
+    private let onRequestExport: ((EditorTimeline) -> Void)?
+
     private var transitionEditContext: TransitionEditContext? { store.selection.editingTransitionContext }
 
     public init(
         store: EditorStore,
         onDraftSave: ((UUID, EditorTimeline) -> Void)? = nil,
-        onExport: ((Data, URL, UIImage) -> Void)? = nil
+        onExport: ((Data, URL, UIImage) -> Void)? = nil,
+        onRequestExport: ((EditorTimeline) -> Void)? = nil
     ) {
         _store = State(initialValue: store)
         self.onDraftSave = onDraftSave
         self.onExport = onExport
+        self.onRequestExport = onRequestExport
     }
 
     private let controlBarHeight: CGFloat  = 52
@@ -450,9 +457,14 @@ public struct ClipEditorView: View {
     }
 
     private var exportButton: some View {
-        Button("导出") {
+        Button("匯出") {
             store.pause()
-            showExport = true
+            // LOCAL PATCH (see VENDORED.md #4): let the host encode instead, when it asked to.
+            if let onRequestExport {
+                onRequestExport(store.timeline)
+            } else {
+                showExport = true
+            }
         }
         .foregroundStyle(.white)
         .fontWeight(.medium)

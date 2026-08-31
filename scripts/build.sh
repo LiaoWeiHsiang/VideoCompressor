@@ -72,9 +72,19 @@ xcodebuild \
   "$ACTION"
 
 if [[ "${1:-}" == "--install" ]]; then
+  # -showBuildSettings covers every target in the scheme, so match on the product that is
+  # actually an .app — picking the last FULL_PRODUCT_NAME lands on the share extension.
   APP=$(xcodebuild -project VideoCompressor.xcodeproj -scheme VideoCompressor \
         -destination "id=${DEVICE_ID}" -showBuildSettings 2>/dev/null \
-        | awk -F' = ' '/ BUILT_PRODUCTS_DIR /{d=$2} / FULL_PRODUCT_NAME /{n=$2} END{print d"/"n}')
+        | awk -F' = ' '
+            / BUILT_PRODUCTS_DIR /            { dir = $2 }
+            / FULL_PRODUCT_NAME /             { if ($2 ~ /\.app$/) app = $2 }
+            END                               { if (app != "") print dir "/" app }')
+
+  if [[ -z "$APP" ]]; then
+    echo "error: could not locate the built .app" >&2
+    exit 1
+  fi
 
   echo "==> Installing $APP"
   xcrun devicectl device install app --device "$DEVICE_ID" "$APP"
