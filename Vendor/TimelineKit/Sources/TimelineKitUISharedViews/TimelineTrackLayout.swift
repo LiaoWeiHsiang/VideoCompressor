@@ -28,8 +28,9 @@ public struct TimelineTrackLayout: Equatable, Sendable {
 
     /// Minimum zoom: 20 pt per second.
     public static let defaultMinPPS: CGFloat = 20
-    /// Maximum zoom: 600 pt per second.
-    public static let defaultMaxPPS: CGFloat = 600
+    /// Maximum zoom: 4000 pt per second — enough to separate individual frames.
+    /// LOCAL PATCH (see VENDORED.md #5); mirrors `TrackCanvasView.maxPixelsPerSecond`.
+    public static let defaultMaxPPS: CGFloat = 4000
     /// Initial zoom for empty / very short timelines.
     public static let defaultPPS: CGFloat = 60
     /// Standard left padding used by both platforms.

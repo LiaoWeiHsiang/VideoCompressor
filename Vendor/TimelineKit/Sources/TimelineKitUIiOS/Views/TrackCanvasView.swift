@@ -28,7 +28,11 @@ final class TrackCanvasView: UIView {
     static let leftPadding: CGFloat        = 16
     static let rightPadding: CGFloat       = 32
     static let minPixelsPerSecond: CGFloat = 20
-    static let maxPixelsPerSecond: CGFloat = 600
+    /// LOCAL PATCH (see VENDORED.md #5). Upstream capped zoom at 600 pt/s, which is only
+    /// ~20 pt per frame at 30fps — too coarse to place a cut on a chosen frame. 4000 pt/s
+    /// gives ~133 pt per frame at 30fps and still ~66 at 60fps, so individual frames are
+    /// comfortably separated.
+    static let maxPixelsPerSecond: CGFloat = 4000
     /// V5.1: 空 timeline 进入剪辑器时的初始 pps。
     /// 1s ≈ 60pt（剪映 / CapCut 风格），3s 图片 ≈ 180pt，约半屏宽，避免空 timeline
     /// 被 fittedPPS 算成 availableWidth/0.1 的巨大值导致新增素材爆缩略图。
@@ -271,7 +275,7 @@ final class TrackCanvasView: UIView {
         }
 
         rulerView.frame = CGRect(x: 0, y: 0, width: totalWidth, height: Self.rulerHeight)
-        rulerView.configure(layout: layout)
+        rulerView.configure(layout: layout, fps: timeline.canvas.fps)
 
         playheadLayer.frame.size = CGSize(width: 2, height: contentSize.height)
     }
@@ -442,8 +446,12 @@ final class RulerView: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(layout: TrackLayout) {
+    /// Frame rate of the timeline being ruled, so ticks can subdivide down to one frame.
+    private var fps: Int = 30
+
+    func configure(layout: TrackLayout, fps: Int = 30) {
         self.layout = layout
+        self.fps = max(fps, 1)
         setNeedsDisplay()
     }
 
@@ -464,7 +472,7 @@ final class RulerView: UIView {
             ctx.fill(CGRect(x: x - 0.5, y: bounds.height - tickH, width: 1, height: tickH))
 
             if isMajor {
-                let label = formatTime(t)
+                let label = formatTime(t, interval: minorInterval)
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: UIFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular),
                     .foregroundColor: labelColor
@@ -475,20 +483,35 @@ final class RulerView: UIView {
         }
     }
 
+    /// LOCAL PATCH (see VENDORED.md #5). Upstream's finest tick was 0.1s. Below that the
+    /// ruler stops subdividing however far you zoom in, which makes it impossible to place
+    /// a cut on a specific frame. The scale now goes down to a single frame.
     private func tickInterval(pixelsPerSecond: CGFloat) -> Double {
-        let candidates: [Double] = [0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60]
-        for c in candidates {
-            if CGFloat(c) * pixelsPerSecond >= 30 { return c }
+        let frame = 1.0 / Double(max(fps, 1))
+        // Frame multiples first, so ticks land on real frame boundaries rather than on
+        // decimal times that fall between them; then the usual seconds ladder.
+        // Sorted, because frame multiples interleave with the seconds ladder differently
+        // at 30fps than at 60fps, and "first candidate wide enough" needs them ascending.
+        let candidates = ([frame, frame * 2, frame * 3, frame * 5, frame * 6, frame * 10] +
+                          [0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60]).sorted()
+        for c in candidates where CGFloat(c) * pixelsPerSecond >= 30 {
+            return c
         }
         return 60
     }
 
-    private func formatTime(_ s: Double) -> String {
+    /// Enough decimals to tell neighbouring ticks apart — a fixed one-decimal label
+    /// repeats itself once the ruler is subdividing below 0.1s.
+    private func formatTime(_ s: Double, interval: Double) -> String {
         let m   = Int(s) / 60
         let sec = Int(s) % 60
-        let ms  = Int((s - Double(Int(s))) * 10)
-        if s < 10 { return String(format: "%d:%02d.%d", m, sec, ms) }
-        return String(format: "%d:%02d", m, sec)
+        let fraction = s - Double(Int(s))
+
+        if interval >= 1 { return String(format: "%d:%02d", m, sec) }
+        let decimals = interval >= 0.1 ? 1 : (interval >= 0.01 ? 2 : 3)
+        let scale = pow(10.0, Double(decimals))
+        let frac = Int((fraction * scale).rounded())
+        return String(format: "%d:%02d.%0*d", m, sec, decimals, frac)
     }
 }
 
@@ -960,7 +983,10 @@ final class TrackRowView: UIView {
 
     /// Snap start time to nearby edges (8pt threshold). Returns snapped time.
     private func freeDragSnap(_ start: Double, duration: Double, excludeID: UUID) -> Double {
-        let threshold = max(0.1, 8.0 / Double(layout.pixelsPerSecond))
+        // LOCAL PATCH (see VENDORED.md #5): the floor was 0.1s, which only ever binds when
+        // zoomed in — exactly when the user is trying to place an edge precisely, and
+        // snapping would drag it up to 100ms away. 8pt of travel is the real intent.
+        let threshold = max(0.002, 8.0 / Double(layout.pixelsPerSecond))
         var edges: [Double] = [0]
         for seg in track.segments where seg.id != excludeID {
             edges.append(seg.targetRange.start)
@@ -1169,7 +1195,9 @@ final class SegmentBlockView: UIView {
     private var asset: EditorAsset?
 
     private var trimStartRange: TimeRange = TimeRange(start: 0, duration: 0)
-    private let minDuration: Double = 0.2
+    /// LOCAL PATCH (see VENDORED.md #5). 0.2s is six frames at 30fps — a floor that made
+    /// short cuts impossible to trim no matter how far the ruler was zoomed in.
+    private let minDuration: Double = 0.034
 
     /// Set by TrackRowView from the source asset duration. Guards the right handle
     /// from extending past the available source material (spec A-05).

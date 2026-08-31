@@ -50,6 +50,23 @@ the package. Using it therefore means accepting its export path, which we must c
    the bitrate ceiling and creation-date handling. Falls through to upstream behaviour when
    the closure is nil.
 
+5. Timeline zoom down to a single frame. Four separate limits each capped precision, and
+   raising only some of them would have changed nothing:
+
+   | File | Was | Now |
+   |---|---|---|
+   | `TrackCanvasView.maxPixelsPerSecond` | 600 | 4000 |
+   | `TimelineTrackLayout.defaultMaxPPS` (mirrors it) | 600 | 4000 |
+   | `RulerView.tickInterval` finest tick | 0.1s | one frame (`1/canvas.fps`) |
+   | `freeDragSnap` threshold floor | 0.1s | 0.002s |
+   | segment `minDuration` | 0.2s | 0.034s (~1 frame) |
+
+   `RulerView` now takes `fps` in `configure` so ticks land on real frame boundaries. The
+   candidate list mixes frame multiples with the seconds ladder and is **sorted**, since
+   the two interleave differently per frame rate; `0.1` stays in the ladder so no frame
+   rate loses resolution anywhere. Tick labels gained adaptive decimals — a fixed one
+   decimal repeats itself below 0.1s.
+
 ## Gotchas found while integrating (not patches — call sites must handle these)
 
 - **Canvas presets are all 720-based** (`EditorCanvas.Preset` → 1280×720 etc.), so
