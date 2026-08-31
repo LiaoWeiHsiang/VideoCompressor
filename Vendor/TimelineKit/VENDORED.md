@@ -78,6 +78,17 @@ the package. Using it therefore means accepting its export path, which we must c
    rate loses resolution anywhere. Tick labels gained adaptive decimals — a fixed one
    decimal repeats itself below 0.1s.
 
+6. `Sources/TimelineKitUIiOS/Views/ClipEditorViewController.swift` — pinch zoom anchors on
+   the playhead instead of the midpoint between the fingers. This timeline pins the
+   playhead to screen centre and scrubs by scrolling underneath it (the `剪映` paradigm its
+   own comments describe), so anchoring anywhere else leaves screen centre — and the
+   previewed frame — on a different time after the pinch.
+
+   Upstream's anchor was also miscomputed: `location(in: scrollView)` is already in content
+   coordinates, because a scroll view's `bounds.origin` *is* its `contentOffset`. Adding
+   `contentOffset.x` to it counted the scroll position twice, so the anchor drifted further
+   the further along the timeline the user had scrolled.
+
 ## Gotchas found while integrating (not patches — call sites must handle these)
 
 - **Canvas presets are all 720-based** (`EditorCanvas.Preset` → 1280×720 etc.), so

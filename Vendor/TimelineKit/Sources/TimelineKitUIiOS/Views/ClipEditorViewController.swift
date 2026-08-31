@@ -25,8 +25,8 @@ public final class ClipEditorViewController: UIViewController {
 
     // Pinch zoom state
     private var pinchStartPPS: CGFloat = 0
+    /// Time held at screen centre for the duration of a pinch.
     private var pinchAnchorTime: Double = 0
-    private var pinchAnchorScreenX: CGFloat = 0
 
     /// SwiftUI-owned route for empty-track add affordances.
     public var onEmptyTrackAdd: ((UUID, EditorTrack.Kind) -> Void)?
@@ -314,24 +314,28 @@ public final class ClipEditorViewController: UIViewController {
         }
     }
 
-    /// Pinch zoom — anchor follows the pinch center (midpoint between two fingers).
+    /// Pinch zoom, anchored on the playhead.
+    ///
+    /// LOCAL PATCH (see VENDORED.md #6). Upstream anchored on the midpoint between the two
+    /// fingers, which is wrong for this timeline: the playhead is pinned to screen centre
+    /// and scrubbing happens by scrolling underneath it, so anchoring anywhere else leaves
+    /// the centre — and therefore the previewed frame — on a different time than before the
+    /// pinch. Zooming should change how much you see, never what you are looking at.
+    ///
+    /// The old anchor was also computed wrongly: `location(in: scrollView)` is already in
+    /// content coordinates (a scroll view's `bounds.origin` *is* its `contentOffset`), so
+    /// adding `contentOffset.x` to it counted the scroll position twice and the anchor
+    /// drifted further the further along the timeline the user had scrolled.
     @objc private func handlePinch(_ gr: UIPinchGestureRecognizer) {
         switch gr.state {
         case .began:
-            pinchStartPPS      = canvas.currentPixelsPerSecond
-            pinchAnchorScreenX = gr.location(in: scrollView).x
-            let canvasX = scrollView.contentOffset.x + pinchAnchorScreenX
-            pinchAnchorTime = canvas.time(at: max(0, canvasX))
+            pinchStartPPS   = canvas.currentPixelsPerSecond
+            pinchAnchorTime = selection.playheadTime
 
         case .changed:
-            let newPPS = pinchStartPPS * gr.scale
-            canvas.zoom(to: newPPS, playheadTime: selection.playheadTime)
-            // Keep pinch-anchor time at the same screen position after content size changes.
-            let anchorCanvasX = canvas.x(for: pinchAnchorTime)
-            let targetOffsetX = anchorCanvasX - pinchAnchorScreenX
-            let minX = -scrollView.contentInset.left
-            let maxX = max(minX, scrollView.contentSize.width - scrollView.bounds.width + scrollView.contentInset.right)
-            scrollView.contentOffset.x = min(max(targetOffsetX, minX), maxX)
+            canvas.zoom(to: pinchStartPPS * gr.scale, playheadTime: pinchAnchorTime)
+            // Re-centre on the same time now that the content has been rescaled.
+            scrollToPlayhead(time: pinchAnchorTime, animated: false)
 
         default:
             break
