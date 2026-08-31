@@ -8,6 +8,8 @@ struct QueueRowView: View {
     /// the queue is already busy, since compression runs one item at a time.
     var canCompressAlone: Bool = false
     var onCompressAlone: () -> Void = {}
+    /// Tapping the thumbnail of a clip that hasn't been compressed yet opens the editor.
+    var onEdit: () -> Void = {}
 
     @State private var showPreview = false
     @State private var showShareSheet = false
@@ -17,12 +19,29 @@ struct QueueRowView: View {
     var body: some View {
         HStack(spacing: 12) {
             Button {
-                showPreview = true
+                // Before compression the thumbnail is the way into the editor; afterwards
+                // there is nothing left to edit, so it previews the result instead.
+                if item.status == .done {
+                    showPreview = true
+                } else {
+                    onEdit()
+                }
             } label: {
                 QueueItemThumbnail(source: item.source)
                     .frame(width: 56, height: 56)
+                    .overlay(alignment: .bottomTrailing) {
+                        if item.status == .pending {
+                            Image(systemName: "scissors")
+                                .font(.caption2)
+                                .foregroundStyle(.white)
+                                .padding(3)
+                                .background(.black.opacity(0.55), in: Circle())
+                                .padding(3)
+                        }
+                    }
             }
             .buttonStyle(.plain)
+            .disabled(item.status == .loading || item.status == .compressing)
 
             VStack(alignment: .leading, spacing: 4) {
                 statusView
@@ -66,7 +85,13 @@ struct QueueRowView: View {
             }
         }
         .sheet(isPresented: $showPreview) {
-            QueueItemPreviewSheet(source: item.source, trimRange: $item.trimRange, isEditable: item.status == .pending)
+            // Show what was produced, not what went in — the compressed copy is the thing
+            // the user is deciding whether to keep.
+            QueueItemPreviewSheet(
+                source: item.outputURL.map { .file(VideoFile(url: $0)) } ?? item.source,
+                trimRange: $item.trimRange,
+                isEditable: false
+            )
         }
         .sheet(isPresented: $showShareSheet) {
             if let url = item.outputURL {

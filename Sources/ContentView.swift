@@ -53,6 +53,9 @@ struct ContentView: View {
                                 canCompressAlone: !isProcessingQueue,
                                 onCompressAlone: { [id = item.id] in
                                     Task { await processQueue(onlyItemID: id) }
+                                },
+                                onEdit: { [id = item.id] in
+                                    Task { await openEditor(itemID: id) }
                                 }
                             )
                         }
@@ -60,7 +63,14 @@ struct ContentView: View {
                     } header: {
                         Text("壓縮佇列（\(queue.count)）")
                     } footer: {
-                        Text("三個選項不會改變解析度，都會維持原始畫面（最高 1080p），差別只在於壓縮率越高，畫質可能略降但檔案更小。")
+                        if isPreparingEditor {
+                            HStack {
+                                ProgressView()
+                                Text("準備剪輯…")
+                            }
+                        } else {
+                            Text("點縮圖可進入剪輯：分割、排序、裁剪、轉場、字幕、調色都在裡面，匯出時會套用下方選擇的壓縮程度。三個壓縮選項都維持原始畫面（最高 1080p），只差在檔案大小與畫質的取捨。")
+                        }
                     }
 
                     Section {
@@ -92,22 +102,6 @@ struct ContentView: View {
                             Text(isProcessingQueue ? "壓縮中…" : "開始壓縮")
                         }
                         .disabled(isProcessingQueue || !hasPendingItems)
-
-                        Button {
-                            Task { await openEditor() }
-                        } label: {
-                            if isPreparingEditor {
-                                HStack {
-                                    ProgressView()
-                                    Text("準備中…")
-                                }
-                            } else {
-                                Label("剪輯並壓縮", systemImage: "scissors")
-                            }
-                        }
-                        .disabled(isProcessingQueue || isPreparingEditor || !hasPendingItems)
-                    } footer: {
-                        Text("「剪輯並壓縮」會把佇列中所有待處理的影片依序放上時間軸,可分割、排序、加字幕轉場,匯出時會套用上面選擇的壓縮程度。")
                     }
 
                     if !doneItems.isEmpty {
@@ -161,7 +155,7 @@ struct ContentView: View {
                     preset: preset,
                     dateMode: dateMode
                 ) { result in
-                    addEditedResult(result)
+                    addEditedResult(result, for: session.targetItemID)
                 }
             }
             .onOpenURL { url in
@@ -252,53 +246,48 @@ struct ContentView: View {
         }
     }
 
-    /// Resolves every pending item to a local file, then opens the editor with them.
+    /// Opens the editor on one queued clip.
     ///
-    /// The resolution has to happen up front: TimelineKit reads clips off disk, and a
-    /// PHAsset still in iCloud has no file until it has been downloaded.
-    private func openEditor() async {
+    /// The clip has to be resolved to a local file first: TimelineKit reads off disk, and a
+    /// PHAsset still in iCloud has no file until it has been downloaded — which is why this
+    /// shows a spinner rather than opening instantly.
+    private func openEditor(itemID: UUID) async {
+        guard let item = queue.first(where: { $0.id == itemID }) else { return }
         isPreparingEditor = true
         defer { isPreparingEditor = false }
 
-        var clips: [EditorScreen.EditorClip] = []
-        for item in queue where item.status == .pending {
-            do {
-                switch item.source {
-                case .asset(let asset):
-                    let video = try await VideoFile.from(asset: asset)
-                    clips.append(.init(url: video.url, shotAt: asset.creationDate, location: asset.location))
-                case .file(let video):
-                    clips.append(.init(url: video.url, shotAt: item.creationDate, location: item.location))
-                }
-            } catch {
-                errorMessage = error.localizedDescription
-                return
+        do {
+            let url: URL
+            switch item.source {
+            case .asset(let asset):
+                url = try await VideoFile.from(asset: asset).url
+            case .file(let video):
+                url = video.url
             }
+            editorSession = EditorSession(
+                targetItemID: itemID,
+                clips: [.init(url: url, shotAt: item.creationDate, location: item.location)]
+            )
+        } catch {
+            errorMessage = error.localizedDescription
         }
-
-        guard !clips.isEmpty else {
-            errorMessage = "沒有可剪輯的影片"
-            return
-        }
-        editorSession = EditorSession(clips: clips)
     }
 
-    /// The editor hands back an already-compressed file, so the item joins the queue as
-    /// finished — ready for the same "save to Photos" path as everything else.
-    private func addEditedResult(_ result: EditorScreen.EditedResult) {
-        var item = QueueItem(source: .file(VideoFile(url: result.outputURL)))
-        item.status = .done
-        item.outputURL = result.outputURL
-        item.outputSizeText = FileSizeFormatter.string(for: result.outputURL)
-        item.outputCreationDate = result.shotAt
-        item.overrideCreationDate = result.shotAt
-        item.overrideLocation = result.location
-        item.displayTitle = "剪輯結果"
-        queue.append(item)
+    /// The editor hands back an already-compressed file, so the clip it was opened from
+    /// becomes a finished item in place — ready for the same "save to Photos" path as
+    /// everything else, and keeping its position in the queue.
+    private func addEditedResult(_ result: EditorScreen.EditedResult, for itemID: UUID) {
+        guard let index = queue.firstIndex(where: { $0.id == itemID }) else { return }
+        queue[index].status = .done
+        queue[index].outputURL = result.outputURL
+        queue[index].outputSizeText = FileSizeFormatter.string(for: result.outputURL)
+        queue[index].outputCreationDate = result.shotAt
+        queue[index].overrideCreationDate = result.shotAt
+        queue[index].overrideLocation = result.location
 
         Task {
             let resolution = await VideoMetadata.resolutionString(for: result.outputURL)
-            if let index = queue.firstIndex(where: { $0.id == item.id }) {
+            if let index = queue.firstIndex(where: { $0.id == itemID }) {
                 queue[index].outputResolution = resolution
             }
         }

@@ -37,8 +37,6 @@ struct QueueItem: Identifiable {
     /// explicitly or the saved copy would lose both.
     var overrideCreationDate: Date?
     var overrideLocation: CLLocation?
-    /// Shown instead of the source filename for results the user produced in the editor.
-    var displayTitle: String?
 
     var asset: PHAsset? {
         if case .asset(let asset) = source { return asset }

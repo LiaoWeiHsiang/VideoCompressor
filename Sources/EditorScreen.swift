@@ -11,6 +11,8 @@ import TimelineKitUIiOS
 /// to local files, which for iCloud videos can take a while.
 struct EditorSession: Identifiable {
     let id = UUID()
+    /// The queue item this session was opened from; the finished edit replaces it.
+    let targetItemID: UUID
     let clips: [EditorScreen.EditorClip]
 }
 
