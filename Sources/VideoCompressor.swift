@@ -23,6 +23,27 @@ enum CompressionError: LocalizedError {
     }
 }
 
+/// Where the frames to compress come from.
+///
+/// The `composition` case exists so an edited timeline goes through *exactly* the same
+/// encoder as a plain file. The bitrate ceiling and the creation-date handling below both
+/// came from fixing real bugs; an editor that exported through its own writer — as
+/// TimelineKit's does by default — would silently reintroduce them.
+enum CompressionSource {
+    /// A single file on disk, optionally trimmed to a sub-range.
+    case file(URL, timeRange: CMTimeRange? = nil)
+
+    /// An edited timeline. `shotAt` must be supplied by the caller: a composition is
+    /// assembled in memory and carries no metadata of its own, so the shooting time has to
+    /// come from whichever source clip the edit should be dated by.
+    case composition(
+        AVComposition,
+        videoComposition: AVVideoComposition?,
+        audioMix: AVAudioMix?,
+        shotAt: Date?
+    )
+}
+
 @MainActor
 final class VideoCompressor: ObservableObject {
     @Published var progress: Double = 0
@@ -31,40 +52,58 @@ final class VideoCompressor: ObservableObject {
     private static let maxLongEdge: CGFloat = 1920
     private static let maxShortEdge: CGFloat = 1080
 
+    /// The source reduced to everything the encoder needs, so the two cases above diverge
+    /// in one place instead of throughout `compress`.
+    private struct ResolvedSource {
+        let asset: AVAsset
+        let videoTracks: [AVAssetTrack]
+        let audioTracks: [AVAssetTrack]
+        let videoComposition: AVVideoComposition?
+        let audioMix: AVAudioMix?
+        /// Size of the buffers the reader will hand back — a track's natural size, or the
+        /// composition's render size once its layer transforms have been applied.
+        let sourceSize: CGSize
+        let transform: CGAffineTransform
+        let frameRate: Float
+        let estimatedBitrate: Float
+        let timeRange: CMTimeRange
+        let metadata: [AVMetadataItem]
+        let creationDate: Date?
+    }
+
     func compress(
         inputURL: URL,
         preset: CompressionPreset,
         timeRange: CMTimeRange? = nil,
         dateMode: DateMode = .original
     ) async throws -> URL {
+        try await compress(
+            source: .file(inputURL, timeRange: timeRange),
+            preset: preset,
+            dateMode: dateMode
+        )
+    }
+
+    func compress(
+        source: CompressionSource,
+        preset: CompressionPreset,
+        dateMode: DateMode = .original
+    ) async throws -> URL {
         isCompressing = true
         progress = 0
         defer { isCompressing = false }
 
-        let asset = AVURLAsset(url: inputURL)
-
-        guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
-            throw CompressionError.assetLoadFailed
-        }
-        let audioTrack = try await asset.loadTracks(withMediaType: .audio).first
-
-        let naturalSize = try await videoTrack.load(.naturalSize)
-        let transform = try await videoTrack.load(.preferredTransform)
-        let nominalFrameRate = try await videoTrack.load(.nominalFrameRate)
-        let estimatedSourceBitrate = try await videoTrack.load(.estimatedDataRate)
-        let duration = try await asset.load(.duration)
-        let effectiveTimeRange = timeRange ?? CMTimeRange(start: .zero, duration: duration)
+        let resolved = try await Self.resolve(source)
+        let asset = resolved.asset
+        let effectiveTimeRange = resolved.timeRange
         let trimmedDurationSeconds = CMTimeGetSeconds(effectiveTimeRange.duration)
-        let sourceMetadata = (try? await asset.load(.metadata)) ?? []
-        // Read via `.creationDate` rather than scanning `sourceMetadata`: that resolves the
-        // movie header too, which is the only place some cameras record the shooting time.
-        var sourceCreationDate: Date?
-        if let creationItem = try? await asset.load(.creationDate) {
-            sourceCreationDate = try? await creationItem.load(.dateValue)
-        }
+        let naturalSize = resolved.sourceSize
+        let transform = resolved.transform
+        let nominalFrameRate = resolved.frameRate
+        let sourceCreationDate = resolved.creationDate
 
         let targetSize = Self.targetNaturalSize(naturalSize: naturalSize, transform: transform)
-        let targetBitrate = Self.targetBitrate(preset: preset, estimatedSourceBitrate: estimatedSourceBitrate)
+        let targetBitrate = Self.targetBitrate(preset: preset, estimatedSourceBitrate: resolved.estimatedBitrate)
 
         let reader: AVAssetReader
         do {
@@ -74,10 +113,29 @@ final class VideoCompressor: ObservableObject {
         }
 
         let pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-        let videoOutput = AVAssetReaderTrackOutput(
-            track: videoTrack,
-            outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: pixelFormat]
-        )
+
+        // A plain track read cannot apply layer transforms or transitions, so an edited
+        // timeline has to go through the composition outputs instead. Both subclass
+        // `AVAssetReaderOutput`, which is why the pump below is written against the parent.
+        let videoOutput: AVAssetReaderOutput
+        if let videoComposition = resolved.videoComposition {
+            let output = AVAssetReaderVideoCompositionOutput(
+                videoTracks: resolved.videoTracks,
+                videoSettings: [kCVPixelBufferPixelFormatTypeKey as String: pixelFormat]
+            )
+            // Setting this is also what installs the timeline's custom compositor.
+            output.videoComposition = videoComposition
+            videoOutput = output
+        } else {
+            guard let videoTrack = resolved.videoTracks.first else {
+                throw CompressionError.assetLoadFailed
+            }
+            let output = AVAssetReaderTrackOutput(
+                track: videoTrack,
+                outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: pixelFormat]
+            )
+            videoOutput = output
+        }
         videoOutput.alwaysCopiesSampleData = false
         guard reader.canAdd(videoOutput) else {
             throw CompressionError.readerCreationFailed("影片軌道不支援讀取")
@@ -85,12 +143,21 @@ final class VideoCompressor: ObservableObject {
         reader.add(videoOutput)
         reader.timeRange = effectiveTimeRange
 
-        var audioOutput: AVAssetReaderTrackOutput?
-        if let audioTrack {
-            let output = AVAssetReaderTrackOutput(
-                track: audioTrack,
-                outputSettings: [AVFormatIDKey: kAudioFormatLinearPCM]
-            )
+        var audioOutput: AVAssetReaderOutput?
+        if !resolved.audioTracks.isEmpty {
+            let pcm: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM]
+            let output: AVAssetReaderOutput
+            if resolved.videoComposition != nil {
+                // Mixes every track down to one stream, honouring per-clip volume.
+                let mixOutput = AVAssetReaderAudioMixOutput(
+                    audioTracks: resolved.audioTracks,
+                    audioSettings: pcm
+                )
+                mixOutput.audioMix = resolved.audioMix
+                output = mixOutput
+            } else {
+                output = AVAssetReaderTrackOutput(track: resolved.audioTracks[0], outputSettings: pcm)
+            }
             output.alwaysCopiesSampleData = false
             if reader.canAdd(output) {
                 reader.add(output)
@@ -98,6 +165,7 @@ final class VideoCompressor: ObservableObject {
             }
         }
 
+        let sourceMetadata = resolved.metadata
         let outputURL = Self.makeOutputURL(shotAt: sourceCreationDate)
 
         let writer: AVAssetWriter
@@ -204,6 +272,82 @@ final class VideoCompressor: ObservableObject {
 
         progress = 1
         return outputURL
+    }
+
+    private static func resolve(_ source: CompressionSource) async throws -> ResolvedSource {
+        switch source {
+        case let .file(url, timeRange):
+            let asset = AVURLAsset(url: url)
+            guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
+                throw CompressionError.assetLoadFailed
+            }
+            let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+            let duration = try await asset.load(.duration)
+
+            // Read the date via `.creationDate` rather than by scanning the metadata items:
+            // that resolves the movie header too, which is the only place some cameras
+            // record the shooting time.
+            var creationDate: Date?
+            if let creationItem = try? await asset.load(.creationDate) {
+                creationDate = try? await creationItem.load(.dateValue)
+            }
+
+            return ResolvedSource(
+                asset: asset,
+                videoTracks: [videoTrack],
+                audioTracks: Array(audioTracks.prefix(1)),
+                videoComposition: nil,
+                audioMix: nil,
+                sourceSize: try await videoTrack.load(.naturalSize),
+                transform: try await videoTrack.load(.preferredTransform),
+                frameRate: try await videoTrack.load(.nominalFrameRate),
+                estimatedBitrate: try await videoTrack.load(.estimatedDataRate),
+                timeRange: timeRange ?? CMTimeRange(start: .zero, duration: duration),
+                metadata: (try? await asset.load(.metadata)) ?? [],
+                creationDate: creationDate
+            )
+
+        case let .composition(composition, videoComposition, audioMix, shotAt):
+            let videoTracks = try await composition.loadTracks(withMediaType: .video)
+            let audioTracks = try await composition.loadTracks(withMediaType: .audio)
+            guard !videoTracks.isEmpty else { throw CompressionError.assetLoadFailed }
+            let duration = try await composition.load(.duration)
+
+            // The compositor has already baked in each clip's orientation, so the output
+            // must not be rotated a second time by a container-level transform.
+            let renderSize: CGSize
+            let frameRate: Float
+            if let videoComposition {
+                renderSize = videoComposition.renderSize
+                frameRate = Float(1.0 / CMTimeGetSeconds(videoComposition.frameDuration))
+            } else {
+                renderSize = try await videoTracks[0].load(.naturalSize)
+                frameRate = try await videoTracks[0].load(.nominalFrameRate)
+            }
+
+            // Cap against the heaviest clip on the timeline. Averaging would let one
+            // high-bitrate segment be re-encoded far below what it needs; the preset is
+            // still the upper bound either way.
+            var peakBitrate: Float = 0
+            for track in videoTracks {
+                peakBitrate = max(peakBitrate, (try? await track.load(.estimatedDataRate)) ?? 0)
+            }
+
+            return ResolvedSource(
+                asset: composition,
+                videoTracks: videoTracks,
+                audioTracks: audioTracks,
+                videoComposition: videoComposition,
+                audioMix: audioMix,
+                sourceSize: renderSize,
+                transform: .identity,
+                frameRate: frameRate,
+                estimatedBitrate: peakBitrate,
+                timeRange: CMTimeRange(start: .zero, duration: duration),
+                metadata: [],
+                creationDate: shotAt
+            )
+        }
     }
 
     /// Names the output after when the footage was *shot*, e.g. `202608152039_compressed`.
@@ -321,10 +465,10 @@ final class VideoCompressor: ObservableObject {
     private static func pumpSamples(
         reader: AVAssetReader,
         writer: AVAssetWriter,
-        videoOutput: AVAssetReaderTrackOutput,
+        videoOutput: AVAssetReaderOutput,
         videoInput: AVAssetWriterInput,
         adaptor: AVAssetWriterInputPixelBufferAdaptor,
-        audioOutput: AVAssetReaderTrackOutput?,
+        audioOutput: AVAssetReaderOutput?,
         audioInput: AVAssetWriterInput?,
         needsScaling: Bool,
         sourceSize: CGSize,

@@ -11,6 +11,11 @@ settings:
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.0"
     TARGETED_DEVICE_FAMILY: "1"
+packages:
+  # Vendored rather than pulled from GitHub — the editor's feature panels are all
+  # `internal`, so using them at all means patching the package. See Vendor/TimelineKit/VENDORED.md.
+  TimelineKit:
+    path: Vendor/TimelineKit
 targets:
   VideoCompressor:
     type: application
@@ -42,6 +47,13 @@ targets:
     dependencies:
       - target: VideoCompressorShare
         embed: true
+      - package: TimelineKit
+        products:
+          - TimelineKitCore
+          - TimelineKitRender
+          - TimelineKitUIShared
+          - TimelineKitUISharedViews
+          - TimelineKitUIiOS
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.weihsiangliao.VideoCompressor
@@ -82,6 +94,11 @@ targets:
       - path: Tests/VideoCompressorTests
     dependencies:
       - target: VideoCompressor
+      - package: TimelineKit
+        products:
+          - TimelineKitCore
+          - TimelineKitRender
+          - TimelineKitUIShared
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.weihsiangliao.VideoCompressorTests
