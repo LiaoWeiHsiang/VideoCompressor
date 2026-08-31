@@ -61,6 +61,17 @@ the package. Using it therefore means accepting its export path, which we must c
    | `freeDragSnap` threshold floor | 0.1s | 0.002s |
    | segment `minDuration` | 0.2s | 0.034s (~1 frame) |
 
+   Zoom-**out** was capped the same way: `minPixelsPerSecond` / `defaultMinPPS` of 20 pt/s
+   made a 10-minute clip 12,000 pt wide, and since `fittedPPS` clamps to that same floor,
+   a long clip could not be fitted on open either. Both are now 0.1 pt/s — an hour of
+   footage on one screen — with the ruler's ladder extended to 120/300/600/1800/3600s and
+   labels switching to `h:mm:ss` past an hour.
+
+   `configure` used to detect "not configured yet" by comparing `currentPixelsPerSecond`
+   against `minPixelsPerSecond`. That is a zoom level the user can now actually reach, at
+   which point reconfiguring would yank their view back to the fitted zoom, so it was
+   replaced with an explicit `hasChosenInitialZoom` flag.
+
    `RulerView` now takes `fps` in `configure` so ticks land on real frame boundaries. The
    candidate list mixes frame multiples with the seconds ladder and is **sorted**, since
    the two interleave differently per frame rate; `0.1` stays in the ladder so no frame

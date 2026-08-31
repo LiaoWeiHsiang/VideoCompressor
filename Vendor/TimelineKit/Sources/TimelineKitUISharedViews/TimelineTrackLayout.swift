@@ -26,8 +26,9 @@ public struct TimelineTrackLayout: Equatable, Sendable {
 
     // MARK: - Defaults (mirror iOS TrackCanvasView constants)
 
-    /// Minimum zoom: 20 pt per second.
-    public static let defaultMinPPS: CGFloat = 20
+    /// Minimum zoom: 0.1 pt per second, so an hour of footage fits one screen.
+    /// LOCAL PATCH (see VENDORED.md #5); mirrors `TrackCanvasView.minPixelsPerSecond`.
+    public static let defaultMinPPS: CGFloat = 0.1
     /// Maximum zoom: 4000 pt per second — enough to separate individual frames.
     /// LOCAL PATCH (see VENDORED.md #5); mirrors `TrackCanvasView.maxPixelsPerSecond`.
     public static let defaultMaxPPS: CGFloat = 4000

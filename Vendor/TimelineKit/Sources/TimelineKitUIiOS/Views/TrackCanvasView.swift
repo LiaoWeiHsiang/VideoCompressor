@@ -27,7 +27,11 @@ final class TrackCanvasView: UIView {
     static let trackSpacing: CGFloat       = 3
     static let leftPadding: CGFloat        = 16
     static let rightPadding: CGFloat       = 32
-    static let minPixelsPerSecond: CGFloat = 20
+    /// LOCAL PATCH (see VENDORED.md #5). Upstream's floor of 20 pt/s meant a 10-minute
+    /// clip was 12,000 pt wide — over thirty screenfuls of scrolling to reach the end, and
+    /// `fittedPPS` could not fit it on open either. At 0.1 pt/s an hour of footage fits on
+    /// one screen.
+    static let minPixelsPerSecond: CGFloat = 0.1
     /// LOCAL PATCH (see VENDORED.md #5). Upstream capped zoom at 600 pt/s, which is only
     /// ~20 pt per frame at 30fps — too coarse to place a cut on a chosen frame. 4000 pt/s
     /// gives ~133 pt per frame at 30fps and still ~66 at 60fps, so individual frames are
@@ -82,6 +86,9 @@ final class TrackCanvasView: UIView {
     private var timeline: EditorTimeline?
     private(set) var layout: TrackLayout = .empty
     private(set) var currentPixelsPerSecond: CGFloat = minPixelsPerSecond
+    /// Whether `configure` has already picked a starting zoom for this timeline. Once set,
+    /// the user's own zoom is left alone.
+    private var hasChosenInitialZoom = false
 
     private var rulerView: RulerView!
     private var trackRows: [UUID: TrackRowView] = [:]
@@ -142,7 +149,12 @@ final class TrackCanvasView: UIView {
         self.timeline = timeline
         // V5.1 BUG 2: 空 timeline 走默认 pps，避免 fittedPPS 把 duration=0 膨胀为 0.1s
         // 导致 availableWidth/0.1 算出数千 pps，新增素材瞬间生成海量缩略图。
-        if currentPixelsPerSecond == Self.minPixelsPerSecond {
+        // LOCAL PATCH (see VENDORED.md #5): upstream detected "not configured yet" by
+        // comparing against minPixelsPerSecond. With the floor lowered to 0.1 that is a
+        // zoom level the user can actually reach, and reconfiguring would then yank their
+        // view back to the fitted zoom. An explicit flag says what was meant.
+        if !hasChosenInitialZoom {
+            hasChosenInitialZoom = true
             if timeline.duration < 0.5 {
                 currentPixelsPerSecond = Self.defaultPixelsPerSecond
             } else {
@@ -493,20 +505,24 @@ final class RulerView: UIView {
         // Sorted, because frame multiples interleave with the seconds ladder differently
         // at 30fps than at 60fps, and "first candidate wide enough" needs them ascending.
         let candidates = ([frame, frame * 2, frame * 3, frame * 5, frame * 6, frame * 10] +
-                          [0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60]).sorted()
+                          [0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60,
+                           120, 300, 600, 1800, 3600]).sorted()
         for c in candidates where CGFloat(c) * pixelsPerSecond >= 30 {
             return c
         }
-        return 60
+        return 3600
     }
 
     /// Enough decimals to tell neighbouring ticks apart — a fixed one-decimal label
     /// repeats itself once the ruler is subdividing below 0.1s.
     private func formatTime(_ s: Double, interval: Double) -> String {
-        let m   = Int(s) / 60
-        let sec = Int(s) % 60
-        let fraction = s - Double(Int(s))
+        let whole = Int(s)
+        let m   = (whole / 60) % 60
+        let sec = whole % 60
+        let fraction = s - Double(whole)
 
+        // Past an hour, "60:00" reads as sixty minutes rather than one hour.
+        if whole >= 3600 { return String(format: "%d:%02d:%02d", whole / 3600, m, sec) }
         if interval >= 1 { return String(format: "%d:%02d", m, sec) }
         let decimals = interval >= 0.1 ? 1 : (interval >= 0.01 ? 2 : 3)
         let scale = pow(10.0, Double(decimals))
