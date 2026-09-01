@@ -274,6 +274,35 @@ public final class EditorStore: @MainActor Identifiable {
     }
     public func setVideoMuted(segmentID: UUID, isMuted: Bool) { document.setVideoMuted(segmentID: segmentID, isMuted: isMuted) }
     public func setAudioSpeed(segmentID: UUID, speed: Double) { document.setAudioSpeed(segmentID: segmentID, speed: speed) }
+
+    /// LOCAL PATCH (VENDORED.md #13): per-segment video speed.
+    ///
+    /// The segment keeps the same footage but occupies a different length of timeline, so
+    /// the slot is resized and everything after it moves along — otherwise a slowed clip
+    /// would overlap its neighbour.
+    public static let videoSpeedRange: ClosedRange<Double> = 0.25...4.0
+    public func setVideoSpeed(segmentID: UUID, speed: Double) {
+        let newSpeed = min(max(speed, Self.videoSpeedRange.lowerBound), Self.videoSpeedRange.upperBound)
+        guard let seg = timeline.segment(id: segmentID), abs(seg.speed - newSpeed) > 1e-4 else { return }
+
+        let footage = max(seg.targetRange.duration * max(seg.speed, 0.001), 0.05)
+        let newDuration = max(footage / newSpeed, 0.05)
+        let delta = newDuration - seg.targetRange.duration
+
+        mutate("調整速度") { tl in
+            guard let ti = tl.tracks.firstIndex(where: { $0.segments.contains { $0.id == segmentID } }),
+                  let si = tl.tracks[ti].segments.firstIndex(where: { $0.id == segmentID })
+            else { return }
+            let start = tl.tracks[ti].segments[si].targetRange.start
+            tl.tracks[ti].segments[si].speed = newSpeed
+            tl.tracks[ti].segments[si].targetRange = TimeRange(start: start, duration: newDuration)
+
+            for index in tl.tracks[ti].segments.indices
+            where tl.tracks[ti].segments[index].targetRange.start > start {
+                tl.tracks[ti].segments[index].targetRange.start += delta
+            }
+        }
+    }
     public static let audioSpeedRange: ClosedRange<Double> = TimelineDocument.audioSpeedRange
 
     public func previewAudioVolume(segmentID: UUID, volume: Double) {

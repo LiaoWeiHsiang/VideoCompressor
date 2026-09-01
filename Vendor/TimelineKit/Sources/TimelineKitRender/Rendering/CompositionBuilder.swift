@@ -476,11 +476,19 @@ public actor CompositionBuilder {
                 start:    CMTime(seconds: srcStart - headExtension,       preferredTimescale: 600),
                 duration: CMTime(seconds: clampedSrcDur + headExtension,  preferredTimescale: 600)
             )
-            try? track.insertTimeRange(
-                sr,
-                of: assetTrack,
-                at: CMTime(seconds: insertionTimes[i] - headExtension, preferredTimescale: 600)
-            )
+            let insertAt = CMTime(seconds: insertionTimes[i] - headExtension, preferredTimescale: 600)
+            try? track.insertTimeRange(sr, of: assetTrack, at: insertAt)
+
+            // LOCAL PATCH (VENDORED.md #13): compress or stretch what was just inserted so
+            // it fills exactly the slot the segment occupies on the timeline.
+            let speed = Self.clampedSpeed(seg)
+            if abs(speed - 1.0) > 1e-3 {
+                let inserted = CMTimeRange(start: insertAt, duration: sr.duration)
+                track.scaleTimeRange(
+                    inserted,
+                    toDuration: CMTime(seconds: sr.duration.seconds / speed, preferredTimescale: 600)
+                )
+            }
 
 #if DEBUG
             print("[CompositionBuilder] unified ✅ seg[\(i)] track\(isEven || trackBID == nil ? "A" : "B") t=\(String(format:"%.2f",insertionTimes[i]))s")
@@ -931,6 +939,20 @@ public actor CompositionBuilder {
 
         do {
             try track.insertTimeRange(srcTimeRange, of: assetTrack, at: targetAt)
+
+            // LOCAL PATCH (VENDORED.md #13): scale a speed-changed clip back into its slot.
+            // Images are excluded: they have no inherent rate, and the stretch below
+            // already fits them to the segment.
+            let speed = Self.clampedSpeed(seg)
+            var isImage = false
+            if case .image = seg.content { isImage = true }
+            if !isImage, abs(speed - 1.0) > 1e-3 {
+                let inserted = CMTimeRange(start: targetAt, duration: srcTimeRange.duration)
+                try? track.scaleTimeRange(
+                    inserted,
+                    toDuration: CMTime(seconds: srcTimeRange.duration.seconds / speed, preferredTimescale: 600)
+                )
+            }
             // 图片段被拉伸时把媒体 scale 到 targetRange 全程
             if case .image = seg.content, clampedSrcDur < sourceDuration {
                 let insertedRange  = CMTimeRange(start: targetAt, duration: srcTimeRange.duration)
@@ -986,13 +1008,25 @@ public actor CompositionBuilder {
     }
 
     /// Returns (sourceStart, sourceDuration) for a segment.
+    /// LOCAL PATCH (see VENDORED.md #13). Upstream ignored `seg.speed` for video entirely —
+    /// its own header says variable speed is "applied to audio segments only" — so a clip
+    /// marked 2x played at normal rate and simply ran past its slot.
+    ///
+    /// A clip playing at `speed` consumes `speed` seconds of footage per second on the
+    /// timeline, so the source range has to be that much longer (or shorter) than the slot
+    /// it occupies; the inserted media is then scaled back to the slot.
+    static func clampedSpeed(_ seg: EditorSegment) -> Double {
+        min(max(seg.speed, 0.25), 4.0)
+    }
+
     private func srcRange(for seg: EditorSegment) -> (start: Double, duration: Double) {
         if case .image = seg.content {
             return (0, seg.targetRange.duration)
         }
         // Always use targetRange.duration: sourceRange.duration is frozen at replacement time
         // and becomes stale after the user trims/extends the segment.
-        return (seg.sourceRange?.start ?? 0, seg.targetRange.duration)
+        return (seg.sourceRange?.start ?? 0,
+                seg.targetRange.duration * Self.clampedSpeed(seg))
     }
 
     // MARK: - Cover-Fit Transform
@@ -1166,14 +1200,24 @@ public actor CompositionBuilder {
                 let audioTracks = try await avAsset.loadTracks(withMediaType: .audio)
                 guard let srcTrack = audioTracks.first else { continue }
 
+                // LOCAL PATCH (VENDORED.md #13): the clip's own audio has to be sped up by
+                // the same factor as its picture, or the two drift apart.
+                let speed       = Self.clampedSpeed(seg)
                 let srcStart    = seg.sourceRange?.start ?? 0
-                let srcDuration = seg.targetRange.duration
+                let srcDuration = seg.targetRange.duration * speed
                 let srcRange    = CMTimeRange(
                     start:    CMTime(seconds: srcStart,    preferredTimescale: 600),
                     duration: CMTime(seconds: srcDuration, preferredTimescale: 600)
                 )
                 let targetAt = CMTime(seconds: seg.targetRange.start, preferredTimescale: 600)
                 try? compAudioTrack.insertTimeRange(srcRange, of: srcTrack, at: targetAt)
+                if abs(speed - 1.0) > 1e-3 {
+                    let inserted = CMTimeRange(start: targetAt, duration: srcRange.duration)
+                    compAudioTrack.scaleTimeRange(
+                        inserted,
+                        toDuration: CMTime(seconds: seg.targetRange.duration, preferredTimescale: 600)
+                    )
+                }
             }
 
             let nativeVolume: Float = track.isMuted ? 0 : 1.0

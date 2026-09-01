@@ -77,7 +77,7 @@ xcodebuild \
   -scheme VideoCompressor \
   -destination "id=${DEVICE_ID}" \
   -allowProvisioningUpdates \
-  "${ONLY_UNIT[@]}" \
+  ${ONLY_UNIT[@]+"${ONLY_UNIT[@]}"} \
   "$ACTION"
 
 if [[ "${1:-}" == "--install" ]]; then

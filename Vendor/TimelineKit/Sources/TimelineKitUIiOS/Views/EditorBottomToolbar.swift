@@ -16,13 +16,14 @@ public enum EditorToolCategory: String, CaseIterable, Identifiable {
     case transition = "轉場"
     case adjust     = "調節"
     case animation  = "動畫"   // V7: clip-level entrance/exit/combo animations
+    case speed      = "變速"   // LOCAL PATCH (VENDORED.md #13)
 
     public var id: String { rawValue }
 
     /// Whether this category is shown in the toolbar. False = feature not yet shipped.
     var isEnabled: Bool {
         switch self {
-        case .clip, .audio, .text, .transition, .adjust, .animation: return true
+        case .clip, .audio, .text, .transition, .adjust, .animation, .speed: return true
         default: return false
         }
     }
@@ -37,6 +38,7 @@ public enum EditorToolCategory: String, CaseIterable, Identifiable {
         case .transition: return "arrow.left.and.right.square"
         case .adjust:     return "slider.horizontal.3"
         case .animation:  return "wand.and.stars"
+        case .speed:      return "gauge.with.needle"
         }
     }
 }
@@ -174,6 +176,9 @@ struct EditorSecondaryToolPanel: View {
             // Without a selection this fell through to `default`, so the panel opened
             // completely empty and the feature looked broken rather than unselected.
             hint("先點一下時間軸上的影片片段,再按「動畫」")
+
+        case .speed:
+            hint("先點一下時間軸上的影片片段,再按「變速」")
 
         default:
             EmptyView()

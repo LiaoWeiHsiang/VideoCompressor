@@ -380,6 +380,11 @@ public struct ClipEditorView: View {
                   store.timeline.mainTrack?.segment(id: segID) != nil {
             ColorAdjustmentPanel(segmentID: segID, store: store, onDismiss: { activeToolCategory = nil })
                 .transition(.move(edge: .bottom).combined(with: .opacity))
+        } else if activeToolCategory == .speed,
+                  let segID = store.selection.singleSelectedID,
+                  store.timeline.mainTrack?.segment(id: segID) != nil {
+            SpeedPanel(segmentID: segID, store: store, onDismiss: { activeToolCategory = nil })
+                .transition(.move(edge: .bottom).combined(with: .opacity))
         } else if activeToolCategory == .animation,
                   let segID = store.selection.singleSelectedID,
                   store.timeline.mainTrack?.segment(id: segID) != nil {
