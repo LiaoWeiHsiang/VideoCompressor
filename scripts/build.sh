@@ -55,6 +55,8 @@ if [[ -z "${DEVICE_ID:-}" ]]; then
   exit 1
 fi
 
+"$(dirname "$0")/check-tests.sh"
+
 echo "==> Generating project (team ${DEVELOPMENT_TEAM})"
 xcodegen generate
 

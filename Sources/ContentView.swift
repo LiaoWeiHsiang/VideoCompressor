@@ -10,7 +10,9 @@ struct ContentView: View {
     @Environment(\.editMode) private var editMode
     @State private var showBrowser = false
     @State private var queue: [QueueItem] = []
-    @State private var preset: CompressionPreset = .medium
+    @State private var settings = CompressionSettings()
+    @State private var targetSizeMB: Double = 25
+    @State private var useTargetSize = false
     @State private var dateMode: DateMode = .now
     @State private var errorMessage: String?
     @State private var isProcessingQueue = false
@@ -30,6 +32,52 @@ struct ContentView: View {
         queue.filter { $0.status == .pending && $0.editedTimeline != nil }.count
     }
     private var hasEditedItems: Bool { editedItemCount > 0 }
+
+    /// The settings as chosen, with the target-size toggle folded in. Kept separate from
+    /// `settings` so switching the toggle off restores the preset the user had picked
+    /// rather than discarding it.
+    private var effectiveSettings: CompressionSettings {
+        var resolved = settings
+        if useTargetSize { resolved.quality = .targetSize(megabytes: targetSizeMB) }
+        return resolved
+    }
+
+    private var presetBinding: Binding<CompressionPreset> {
+        Binding(
+            get: {
+                if case .preset(let preset) = settings.quality { return preset }
+                return .medium
+            },
+            set: { settings.quality = .preset($0) }
+        )
+    }
+
+    /// Total predicted output for everything still queued, so the effect of a setting is
+    /// visible before committing to a run that takes minutes.
+    private var estimateSummary: String? {
+        let pending = queue.filter { $0.status == .pending }
+        guard !pending.isEmpty else { return nil }
+
+        var total: Int64 = 0
+        var limited = false
+        var known = 0
+        for item in pending {
+            guard let duration = item.sourceDurationSeconds,
+                  let bitrate = item.sourceBitrate,
+                  let estimate = CompressionEstimator.estimate(
+                    settings: effectiveSettings, durationSeconds: duration, sourceBitrate: bitrate)
+            else { continue }
+            total += estimate.bytes
+            limited = limited || estimate.limitedBySource
+            known += 1
+        }
+        guard known > 0 else { return nil }
+
+        let size = ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
+        let scope = known == pending.count ? "" : "（\(known)/\(pending.count) 部）"
+        let caveat = limited ? "。部分影片受原始畫質限制，設定再高也不會更大" : ""
+        return "預估輸出約 \(size)\(scope)\(caveat)"
+    }
 
     private var startButtonTitle: String {
         if isProcessingQueue { return hasEditedItems ? "處理中…" : "壓縮中…" }
@@ -87,13 +135,51 @@ struct ContentView: View {
                     }
 
                     Section {
-                        Picker("壓縮程度", selection: $preset) {
-                            ForEach(CompressionPreset.allCases) { preset in
-                                Text(preset.rawValue).tag(preset)
+                        Toggle("指定檔案大小", isOn: $useTargetSize)
+                            .disabled(isProcessingQueue)
+
+                        if useTargetSize {
+                            HStack {
+                                Text("目標大小")
+                                Spacer()
+                                Text("\(Int(targetSizeMB)) MB").foregroundStyle(.secondary)
+                            }
+                            Slider(value: $targetSizeMB, in: 5...500, step: 5)
+                                .disabled(isProcessingQueue)
+                        } else {
+                            Picker("壓縮程度", selection: presetBinding) {
+                                ForEach(CompressionPreset.allCases) { preset in
+                                    Text(preset.rawValue).tag(preset)
+                                }
+                            }
+                            .pickerStyle(.inline)
+                            .disabled(isProcessingQueue)
+                        }
+                    } header: {
+                        Text("畫質")
+                    } footer: {
+                        if let summary = estimateSummary {
+                            Text(summary)
+                        }
+                    }
+
+                    Section("尺寸與影格") {
+                        Picker("解析度上限", selection: $settings.resolution) {
+                            ForEach(CompressionSettings.Resolution.allCases) { option in
+                                Text(option.rawValue).tag(option)
                             }
                         }
-                        .pickerStyle(.inline)
                         .disabled(isProcessingQueue)
+
+                        Picker("影格率上限", selection: $settings.frameRateCap) {
+                            ForEach(CompressionSettings.FrameRateCap.allCases) { option in
+                                Text(option.rawValue).tag(option)
+                            }
+                        }
+                        .disabled(isProcessingQueue)
+
+                        Toggle("保留聲音", isOn: $settings.includeAudio)
+                            .disabled(isProcessingQueue)
                     }
 
                     Section {
@@ -228,7 +314,31 @@ struct ContentView: View {
     private func addToQueue(assets: [PHAsset]) {
         let existingIDs = Set(queue.compactMap { $0.asset?.localIdentifier })
         let newAssets = assets.filter { !existingIDs.contains($0.localIdentifier) }
-        queue.append(contentsOf: newAssets.map { QueueItem(source: .asset($0)) })
+        let added = newAssets.map { QueueItem(source: .asset($0)) }
+        queue.append(contentsOf: added)
+
+        // Duration and bitrate drive the size estimate. PHAsset knows the duration
+        // immediately; the bitrate needs the file, so it is filled in behind the scenes and
+        // the estimate simply appears once it lands.
+        for (item, asset) in zip(added, newAssets) {
+            Task { await loadSourceStats(itemID: item.id, asset: asset) }
+        }
+    }
+
+    /// Reads what the estimate needs without blocking the list.
+    ///
+    /// Estimating from `PHAsset` alone is not possible: it reports pixel dimensions and
+    /// duration but not bitrate, and bitrate is what decides the output size.
+    private func loadSourceStats(itemID: UUID, asset: PHAsset) async {
+        guard let video = try? await VideoFile.from(asset: asset),
+              let stats = await VideoMetadata.stats(for: video.url)
+        else { return }
+        try? FileManager.default.removeItem(at: video.url)
+
+        if let index = queue.firstIndex(where: { $0.id == itemID }) {
+            queue[index].sourceDurationSeconds = stats.durationSeconds
+            queue[index].sourceBitrate = stats.bitrate
+        }
     }
 
     private static let appGroupID = "group.com.weihsiangliao.VideoCompressor"
@@ -286,7 +396,14 @@ struct ContentView: View {
                 .appendingPathExtension(ext)
             try FileManager.default.copyItem(at: sourceURL, to: localURL)
             try? FileManager.default.removeItem(at: sourceURL)
-            queue.append(QueueItem(source: .file(VideoFile(url: localURL))))
+            let item = QueueItem(source: .file(VideoFile(url: localURL)))
+            queue.append(item)
+            Task {
+                guard let stats = await VideoMetadata.stats(for: localURL),
+                      let index = queue.firstIndex(where: { $0.id == item.id }) else { return }
+                queue[index].sourceDurationSeconds = stats.durationSeconds
+                queue[index].sourceBitrate = stats.bitrate
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -420,14 +537,13 @@ struct ContentView: View {
                             // was rendered. `.now` restamping still wins when chosen.
                             shotAt: dateMode == .now ? nil : queue[index].creationDate
                         ),
-                        preset: preset,
+                        settings: effectiveSettings,
                         dateMode: dateMode
                     )
                 } else {
                     result = try await compressor.compress(
-                        inputURL: inputURL,
-                        preset: preset,
-                        timeRange: timeRange,
+                        source: .file(inputURL, timeRange: timeRange),
+                        settings: effectiveSettings,
                         dateMode: dateMode
                     )
                 }

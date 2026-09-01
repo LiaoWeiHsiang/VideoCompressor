@@ -47,6 +47,10 @@ struct QueueItem: Identifiable, Equatable {
     /// explicitly or the saved copy would lose both.
     var overrideCreationDate: Date?
     var overrideLocation: CLLocation?
+    /// Source duration and bitrate, read when the clip is queued, so the size estimate can
+    /// be shown before anything is compressed.
+    var sourceDurationSeconds: Double?
+    var sourceBitrate: Double?
 
     var asset: PHAsset? {
         if case .asset(let asset) = source { return asset }

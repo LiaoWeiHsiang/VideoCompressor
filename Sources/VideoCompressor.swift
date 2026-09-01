@@ -49,8 +49,8 @@ final class VideoCompressor: ObservableObject {
     @Published var progress: Double = 0
     @Published var isCompressing = false
 
-    private static let maxLongEdge: CGFloat = 1920
-    private static let maxShortEdge: CGFloat = 1080
+    static let maxLongEdge: CGFloat = 1920
+    static let maxShortEdge: CGFloat = 1080
 
     /// The source reduced to everything the encoder needs, so the two cases above diverge
     /// in one place instead of throughout `compress`.
@@ -89,6 +89,16 @@ final class VideoCompressor: ObservableObject {
         preset: CompressionPreset,
         dateMode: DateMode = .original
     ) async throws -> URL {
+        var settings = CompressionSettings()
+        settings.quality = .preset(preset)
+        return try await compress(source: source, settings: settings, dateMode: dateMode)
+    }
+
+    func compress(
+        source: CompressionSource,
+        settings: CompressionSettings,
+        dateMode: DateMode = .original
+    ) async throws -> URL {
         isCompressing = true
         progress = 0
         defer { isCompressing = false }
@@ -104,8 +114,22 @@ final class VideoCompressor: ObservableObject {
         let nominalFrameRate = resolved.frameRate
         let sourceCreationDate = resolved.creationDate
 
-        let targetSize = Self.targetNaturalSize(naturalSize: naturalSize, transform: transform)
-        let targetBitrate = Self.targetBitrate(preset: preset, estimatedSourceBitrate: resolved.estimatedBitrate)
+        let limits = settings.resolution.limits
+        let targetSize = Self.targetNaturalSize(
+            naturalSize: naturalSize, transform: transform,
+            maxLongEdge: limits.longEdge, maxShortEdge: limits.shortEdge
+        )
+
+        // A frame-rate cap changes how many frames carry the bitrate, so it is decided
+        // before the bitrate is.
+        let sourceFrameRate = Double(nominalFrameRate > 0 ? nominalFrameRate : 30)
+        let outputFrameRate = min(settings.frameRateCap.value ?? sourceFrameRate, sourceFrameRate)
+
+        let requestedBitrate = settings.requestedVideoBitrate(durationSeconds: trimmedDurationSeconds)
+        let targetBitrate = Self.targetBitrate(
+            requestedBitrate: requestedBitrate,
+            estimatedSourceBitrate: resolved.estimatedBitrate
+        )
 
         let reader: AVAssetReader
         do {
@@ -156,7 +180,7 @@ final class VideoCompressor: ObservableObject {
         reader.timeRange = effectiveTimeRange
 
         var audioOutput: AVAssetReaderOutput?
-        if !resolved.audioTracks.isEmpty {
+        if settings.includeAudio, !resolved.audioTracks.isEmpty {
             let pcm: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM]
             let output: AVAssetReaderOutput
             if resolved.videoComposition != nil {
@@ -202,7 +226,7 @@ final class VideoCompressor: ObservableObject {
             AVVideoAverageBitRateKey: targetBitrate,
             kVTCompressionPropertyKey_DataRateLimits as String: [bytesPerSecondCap, 1],
             AVVideoProfileLevelKey: kVTProfileLevel_HEVC_Main_AutoLevel as String,
-            AVVideoExpectedSourceFrameRateKey: max(Int(nominalFrameRate.rounded()), 1)
+            AVVideoExpectedSourceFrameRateKey: max(Int(outputFrameRate.rounded()), 1)
         ]
         let videoSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.hevc,
@@ -273,6 +297,7 @@ final class VideoCompressor: ObservableObject {
                 ciContext: ciContext,
                 startOffsetSeconds: CMTimeGetSeconds(effectiveTimeRange.start),
                 durationSeconds: trimmedDurationSeconds,
+                minimumFrameInterval: settings.frameRateCap.value.map { 1.0 / $0 },
                 onProgress: { [weak self] value in
                     Task { @MainActor in
                         self?.progress = value
@@ -459,7 +484,12 @@ final class VideoCompressor: ObservableObject {
         return withoutDates + [stamped]
     }
 
-    private static func targetNaturalSize(naturalSize: CGSize, transform: CGAffineTransform) -> CGSize {
+    private static func targetNaturalSize(
+        naturalSize: CGSize,
+        transform: CGAffineTransform,
+        maxLongEdge: CGFloat = VideoCompressor.maxLongEdge,
+        maxShortEdge: CGFloat = VideoCompressor.maxShortEdge
+    ) -> CGSize {
         let displaySize = naturalSize.applying(transform)
         let displayWidth = abs(displaySize.width)
         let displayHeight = abs(displaySize.height)
@@ -481,11 +511,14 @@ final class VideoCompressor: ObservableObject {
     /// "compress to 720p" export can end up larger than an already-efficient HEVC
     /// original. Instead, cap the request at a fraction of the source's own bitrate so
     /// the output is always meaningfully smaller.
-    private static func targetBitrate(preset: CompressionPreset, estimatedSourceBitrate: Float) -> Int {
+    ///
+    /// Not private: the size estimate must be produced by exactly this arithmetic, or the
+    /// number shown before compressing drifts away from the file that comes out.
+    nonisolated static func targetBitrate(requestedBitrate: Int, estimatedSourceBitrate: Float) -> Int {
         let minimumBitrate = 500_000
-        guard estimatedSourceBitrate > 0 else { return preset.bitrate }
+        guard estimatedSourceBitrate > 0 else { return requestedBitrate }
         let sourceBasedCeiling = Int(estimatedSourceBitrate * 0.85)
-        return max(min(preset.bitrate, sourceBasedCeiling), minimumBitrate)
+        return max(min(requestedBitrate, sourceBasedCeiling), minimumBitrate)
     }
 
     private static func pumpSamples(
@@ -502,6 +535,8 @@ final class VideoCompressor: ObservableObject {
         ciContext: CIContext,
         startOffsetSeconds: Double,
         durationSeconds: Double,
+        /// Minimum spacing between kept frames, when the output rate is capped.
+        minimumFrameInterval: Double?,
         onProgress: @escaping (Double) -> Void
     ) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -519,6 +554,10 @@ final class VideoCompressor: ObservableObject {
             }
 
             group.enter()
+            // Time of the last frame handed to the encoder, for the frame-rate cap. Frames
+            // are dropped rather than re-timed: keeping the original presentation times
+            // means the clip still runs for its own length, just with fewer frames in it.
+            var lastKeptPresentation: Double?
             videoInput.requestMediaDataWhenReady(on: videoQueue) {
                 while videoInput.isReadyForMoreMediaData {
                     if reader.status != .reading {
@@ -533,6 +572,15 @@ final class VideoCompressor: ObservableObject {
                     }
 
                     let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+
+                    if let minimumFrameInterval {
+                        let seconds = CMTimeGetSeconds(presentationTime)
+                        if let last = lastKeptPresentation,
+                           seconds - last < minimumFrameInterval - 0.0005 {
+                            continue        // arrives too soon for the capped rate
+                        }
+                        lastKeptPresentation = seconds
+                    }
 
                     if let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
                         if needsScaling {

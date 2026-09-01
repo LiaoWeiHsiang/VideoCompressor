@@ -23,3 +23,16 @@ enum VideoMetadata {
         return "\(width) × \(height)"
     }
 }
+
+extension VideoMetadata {
+    /// Duration and bitrate of a clip, for the pre-compression size estimate.
+    static func stats(for url: URL) async -> (durationSeconds: Double, bitrate: Double)? {
+        let asset = AVURLAsset(url: url)
+        guard let duration = try? await asset.load(.duration),
+              duration.isNumeric, duration.seconds > 0,
+              let track = try? await asset.loadTracks(withMediaType: .video).first,
+              let rate = try? await track.load(.estimatedDataRate)
+        else { return nil }
+        return (duration.seconds, Double(rate))
+    }
+}
