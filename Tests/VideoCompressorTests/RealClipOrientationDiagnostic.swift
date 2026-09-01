@@ -88,11 +88,7 @@ final class RealClipOrientationDiagnostic: XCTestCase {
         _ = store.addVisualSegment(localURL: video.url, nativeDuration: CMTimeGetSeconds(duration))
         let built = try await CompositionBuilder().build(
             from: store.timeline,
-            renderSubtitles: true,
-            renderSize: CGSize(
-                width: EditorScreen.exportShortSide * 16 / 9,
-                height: EditorScreen.exportShortSide
-            )
+            renderSubtitles: true
         )
         print("DIAG_EDITOR_RENDER_SIZE: \(built.videoComposition.renderSize)")
         if let frame = try? Self.firstCompositionFrame(built) {

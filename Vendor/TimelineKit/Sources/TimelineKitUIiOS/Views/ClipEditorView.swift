@@ -457,7 +457,9 @@ public struct ClipEditorView: View {
     }
 
     private var exportButton: some View {
-        Button("匯出") {
+        // LOCAL PATCH (VENDORED.md #4): the host saves the edit and encodes later, so this
+        // no longer exports anything.
+        Button(onRequestExport != nil ? "完成" : "匯出") {
             store.pause()
             // LOCAL PATCH (see VENDORED.md #4): let the host encode instead, when it asked to.
             if let onRequestExport {

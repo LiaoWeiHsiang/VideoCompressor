@@ -11,43 +11,37 @@ import TimelineKitUIiOS
 /// to local files, which for iCloud videos can take a while.
 struct EditorSession: Identifiable {
     let id = UUID()
-    /// The queue item this session was opened from; the finished edit takes its place.
+    /// The queue item being edited; its saved edit is updated on the way out.
     let targetItemID: UUID
     let clips: [EditorScreen.EditorClip]
+    /// The edit this item already had, so reopening resumes where it left off.
+    let existingTimeline: EditorTimeline?
 }
 
-/// Hosts TimelineKit's editor and routes its output through this app's encoder.
+/// Hosts TimelineKit's editor.
 ///
-/// The editor is only allowed to decide *what* the video contains. How it is encoded stays
-/// here, because TimelineKit's own exporter has neither the source-relative bitrate ceiling
-/// nor the creation-date handling that this app exists to provide — see
+/// Nothing is encoded here. The editor records *what* the video should contain and hands
+/// that timeline back; every clip in the queue is then rendered and compressed together
+/// when the user starts the run. Encoding stays with this app's own pipeline either way,
+/// because TimelineKit's exporter has neither the source-relative bitrate ceiling nor the
+/// creation-date handling that this app exists to provide — see
 /// `Vendor/TimelineKit/VENDORED.md`.
 struct EditorScreen: View {
     /// Clips to open the timeline with, in order, already resolved to local files.
     let clips: [EditorClip]
-    /// Bitrate ceiling to encode the finished edit at.
-    let preset: CompressionPreset
-    let dateMode: DateMode
-    /// Called with the compressed result once the user exports.
-    let onFinished: (EditedResult) -> Void
+    /// Resumed edit, if this clip has been edited before.
+    let existingTimeline: EditorTimeline?
+    /// Called with the finished timeline when the user taps 完成.
+    let onSave: (EditorTimeline) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var compressor = VideoCompressor()
     @State private var store: EditorStore?
-    @State private var isExporting = false
-    @State private var errorMessage: String?
 
-    /// One source clip on the timeline, plus the provenance the encoder needs. A
+    /// One source clip on the timeline, plus the provenance the encoder needs later. A
     /// composition carries no metadata of its own, so date and location have to be
-    /// remembered here rather than read back off the edit.
+    /// remembered by the queue rather than read back off the edit.
     struct EditorClip {
         let url: URL
-        let shotAt: Date?
-        let location: CLLocation?
-    }
-
-    struct EditedResult {
-        let outputURL: URL
         let shotAt: Date?
         let location: CLLocation?
     }
@@ -57,55 +51,30 @@ struct EditorScreen: View {
             Group {
                 if let store {
                     ClipEditorView(store: store, onRequestExport: { timeline in
-                        Task { await export(timeline) }
+                        onSave(timeline)
+                        dismiss()
                     })
                 } else {
                     ProgressView("載入中…")
                 }
             }
-            .overlay {
-                if isExporting {
-                    exportOverlay
-                }
-            }
         }
         .task { await loadTimeline() }
-        .alert("錯誤", isPresented: .constant(errorMessage != nil)) {
-            Button("確定") { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
-        .interactiveDismissDisabled(isExporting)
     }
 
-    private var exportOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.75).ignoresSafeArea()
-            VStack(spacing: 16) {
-                ProgressView(value: compressor.progress)
-                    .progressViewStyle(.linear)
-                    .frame(width: 220)
-                Text("壓縮中 \(Int(compressor.progress * 100))%")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                Text("請保持螢幕亮著,不要切換 App")
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(0.8))
-            }
-        }
-    }
-
-    /// Short side to render the finished edit at.
-    ///
-    /// TimelineKit's canvas presets are all 720-based, so leaving this to the default
-    /// would quietly export 720p — this app's whole point is to shrink files *without*
-    /// dropping below 1080p, and that loss would be invisible until someone compared the
-    /// result to the original. The compressor's own 1080p cap still applies on top.
-    static let exportShortSide: CGFloat = 1080
+    /// Longest side the finished video may reach, matching the compressor's own cap so the
+    /// editor never renders detail the encoder is about to throw away.
+    static let maxLongEdge: CGFloat = 1920
+    static let maxShortEdge: CGFloat = 1080
 
     @MainActor
     private func loadTimeline() async {
         guard store == nil else { return }
+
+        if let existingTimeline {
+            store = EditorStore(timeline: existingTimeline)
+            return
+        }
 
         let canvas = await Self.canvas(matching: clips.first?.url)
         let newStore = EditorStore(timeline: EditorTimeline(canvas: canvas))
@@ -117,68 +86,45 @@ struct EditorScreen: View {
         store = newStore
     }
 
-    /// Picks the canvas shape from the footage rather than defaulting to landscape, so a
-    /// clip shot in portrait is not letterboxed into black bars before it is even edited.
+    /// Builds a canvas matching the clip itself, so an untouched edit comes out looking
+    /// exactly like the original.
+    ///
+    /// TimelineKit's presets are four fixed shapes at 720, which would both downscale the
+    /// footage and crop anything that is not 16:9, 9:16, 1:1 or 3:4 — an 18:9 phone clip
+    /// would lose its edges before the user had made a single edit. Taking the clip's own
+    /// display size and frame rate means no default change at all.
     ///
     /// `naturalSize` describes how the frames are *stored*, which for phone footage is
     /// almost always landscape regardless of how the phone was held — the rotation lives in
-    /// `preferredTransform`. Reading naturalSize alone therefore calls every portrait clip
-    /// landscape.
+    /// `preferredTransform`. Reading naturalSize alone calls every portrait clip landscape.
     static func canvas(matching url: URL?) async -> EditorCanvas {
-        let landscape = EditorCanvas.Preset.landscape_16_9.canvas
+        let fallback = EditorCanvas.Preset.landscape_16_9.canvas
         guard let url,
               let track = try? await AVURLAsset(url: url).loadTracks(withMediaType: .video).first,
               let size = try? await track.load(.naturalSize),
               let transform = try? await track.load(.preferredTransform)
-        else { return landscape }
+        else { return fallback }
 
-        // Applying the transform uses only its rotation/scale part, which is what swaps
-        // the axes; the sign depends on the rotation direction, hence abs().
+        // Applying the transform uses only its rotation/scale part, which is what swaps the
+        // axes; the sign depends on the rotation direction, hence abs().
         let displayed = size.applying(transform)
         let width = abs(displayed.width)
         let height = abs(displayed.height)
-        guard width > 0, height > 0 else { return landscape }
+        guard width > 0, height > 0 else { return fallback }
 
-        let ratio = width / height
-        if ratio > 1.15 { return landscape }
-        if ratio < 0.87 { return EditorCanvas.Preset.portrait_9_16.canvas }
-        return EditorCanvas.Preset.square_1_1.canvas
-    }
+        let longEdge = max(width, height)
+        let shortEdge = min(width, height)
+        let scale = min(1, min(maxLongEdge / longEdge, maxShortEdge / shortEdge))
 
-    @MainActor
-    private func export(_ timeline: EditorTimeline) async {
-        isExporting = true
-        defer { isExporting = false }
-
-        do {
-            let built = try await CompositionBuilder().build(
-                from: timeline,
-                renderSubtitles: true,
-                renderSize: CGSize(width: Self.exportShortSide * 16 / 9, height: Self.exportShortSide)
-            )
-            let outputURL = try await compressor.compress(
-                source: .composition(
-                    built.composition,
-                    videoComposition: built.videoComposition,
-                    audioMix: built.audioMix,
-                    // Date the edit by its first clip: an edit assembled from one shoot
-                    // belongs at that point on a timeline, not at the moment it was
-                    // rendered. `.now` restamping is still honoured by the encoder.
-                    shotAt: dateMode == .now ? nil : clips.first?.shotAt
-                ),
-                preset: preset,
-                dateMode: dateMode
-            )
-            onFinished(
-                EditedResult(
-                    outputURL: outputURL,
-                    shotAt: dateMode == .now ? Date() : clips.first?.shotAt,
-                    location: clips.first?.location
-                )
-            )
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
+        // Odd dimensions are not encodable in 4:2:0 chroma, so round down to even.
+        func even(_ value: CGFloat) -> Int {
+            let scaled = Int((value * scale).rounded(.down))
+            return scaled % 2 == 0 ? scaled : scaled - 1
         }
+
+        let frameRate = (try? await track.load(.nominalFrameRate)) ?? 30
+        let fps = frameRate > 0 ? Int(frameRate.rounded()) : 30
+
+        return EditorCanvas(width: max(even(width), 2), height: max(even(height), 2), fps: fps)
     }
 }

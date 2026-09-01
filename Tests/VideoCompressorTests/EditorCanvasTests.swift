@@ -86,11 +86,7 @@ final class EditorCanvasTests: XCTestCase {
 
         let built = try await CompositionBuilder().build(
             from: store.timeline,
-            renderSubtitles: true,
-            renderSize: CGSize(
-                width: EditorScreen.exportShortSide * 16 / 9,
-                height: EditorScreen.exportShortSide
-            )
+            renderSubtitles: true
         )
         let renderSize = built.videoComposition.renderSize
         print("PORTRAIT_RENDER_SIZE: \(renderSize)")
@@ -126,11 +122,7 @@ final class EditorCanvasTests: XCTestCase {
 
             let built = try await CompositionBuilder().build(
                 from: store.timeline,
-                renderSubtitles: true,
-                renderSize: CGSize(
-                    width: EditorScreen.exportShortSide * 16 / 9,
-                    height: EditorScreen.exportShortSide
-                )
+                renderSubtitles: true
             )
             let renderedFrame = try XCTUnwrap(Self.firstCompositionFrame(built))
             let renderedQuadrants = try XCTUnwrap(Self.quadrants(of: renderedFrame))
@@ -325,8 +317,7 @@ extension EditorCanvasTests {
 
         let built = try await CompositionBuilder().build(
             from: store.timeline,
-            renderSubtitles: true,
-            renderSize: CGSize(width: 1920, height: 1080)
+            renderSubtitles: true
         )
         XCTAssertNotNil(built.videoComposition.customVideoCompositorClass,
                         "test needs the unified compositor path")

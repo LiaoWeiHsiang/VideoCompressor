@@ -55,7 +55,11 @@ struct QueueRowView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-                if let trimRange = item.trimRange {
+                if item.editedTimeline != nil && item.status == .pending {
+                    Label("已設定剪輯", systemImage: "scissors")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                } else if let trimRange = item.trimRange {
                     Label(trimSummary(trimRange), systemImage: "scissors")
                         .font(.caption2)
                         .foregroundStyle(.orange)

@@ -18,8 +18,10 @@ final class CompositionCompressionTests: XCTestCase {
     /// Builds a timeline the same way the app's editor screen does.
     @MainActor
     private func makeTimeline(clips: [URL]) async throws -> EditorStore {
+        // Same canvas the app derives, so these exercise the real render size rather than
+        // a 720-based preset the app never uses.
         let store = EditorStore(
-            timeline: EditorTimeline(canvas: EditorCanvas.Preset.landscape_16_9.canvas)
+            timeline: EditorTimeline(canvas: await EditorScreen.canvas(matching: clips.first))
         )
         for url in clips {
             let seconds = CMTimeGetSeconds(try await AVURLAsset(url: url).load(.duration))
@@ -111,9 +113,10 @@ final class CompositionCompressionTests: XCTestCase {
 
     /// The editor must not quietly downgrade resolution.
     ///
-    /// Every one of TimelineKit's canvas presets is 720-based, so building without an
-    /// explicit `renderSize` exports 720p. Nothing about the result looks wrong — it is
-    /// simply softer than the source, which is the opposite of what this app promises.
+    /// Every one of TimelineKit's canvas presets is 720-based, so a timeline built on one
+    /// exports 720p. Nothing about the result looks wrong — it is simply softer than the
+    /// source, which is the opposite of what this app promises. The canvas is therefore
+    /// derived from the clip itself; this checks that derivation still holds 1080p.
     @MainActor
     func testEditedOutputStaysAt1080p() async throws {
         // Must be AudioVideoFactory, not SyntheticVideoFactory: the latter declares an
@@ -128,11 +131,7 @@ final class CompositionCompressionTests: XCTestCase {
         let store = try await makeTimeline(clips: [source])
         let built = try await CompositionBuilder().build(
             from: store.timeline,
-            renderSubtitles: true,
-            renderSize: CGSize(
-                width: EditorScreen.exportShortSide * 16 / 9,
-                height: EditorScreen.exportShortSide
-            )
+            renderSubtitles: true
         )
         print("EDITED_RENDER_SIZE: \(built.videoComposition.renderSize)")
         XCTAssertEqual(
@@ -184,11 +183,7 @@ final class CompositionCompressionTests: XCTestCase {
 
         let built = try await CompositionBuilder().build(
             from: store.timeline,
-            renderSubtitles: true,
-            renderSize: CGSize(
-                width: EditorScreen.exportShortSide * 16 / 9,
-                height: EditorScreen.exportShortSide
-            )
+            renderSubtitles: true
         )
         XCTAssertNotNil(
             built.videoComposition.customVideoCompositorClass,
@@ -241,11 +236,7 @@ final class CompositionCompressionTests: XCTestCase {
 
         let built = try await CompositionBuilder().build(
             from: store.timeline,
-            renderSubtitles: true,
-            renderSize: CGSize(
-                width: EditorScreen.exportShortSide * 16 / 9,
-                height: EditorScreen.exportShortSide
-            )
+            renderSubtitles: true
         )
         XCTAssertNotNil(
             built.videoComposition.customVideoCompositorClass,
@@ -301,8 +292,7 @@ final class CompositionCompressionTests: XCTestCase {
 
         let built = try await CompositionBuilder().build(
             from: store.timeline,
-            renderSubtitles: true,
-            renderSize: CGSize(width: 1920, height: 1080)
+            renderSubtitles: true
         )
         try await assertCompositionIsValid(built, label: "OVERLAP")
 
