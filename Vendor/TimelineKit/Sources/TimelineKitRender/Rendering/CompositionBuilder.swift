@@ -1,5 +1,6 @@
 import TimelineKitCore
 import AVFoundation
+import ImageIO
 import CoreImage
 import CoreMedia
 import CoreText
@@ -345,6 +346,9 @@ public actor CompositionBuilder {
                             repeating: nil, count: sortedSegs.count)
         var spareHead = [Double](repeating: 0, count: sortedSegs.count)
         var spareTail = [Double](repeating: 0, count: sortedSegs.count)
+        // LOCAL PATCH (VENDORED.md #9): the unified compositor renders raw track frames, so
+        // it needs each source's display rotation handed to it.
+        var orientations = [CGImagePropertyOrientation](repeating: .up, count: sortedSegs.count)
         var effectiveTransitionDuration: [UUID: Double] = [:]
 
         // Load the sentinel once — a tiny 1×1 transparent MP4 cached to disk.
@@ -424,7 +428,10 @@ public actor CompositionBuilder {
             // points, which is the only place a cross-fade can borrow overlap from
             // without shifting the timeline (and desynchronising audio, which is
             // inserted at raw timeline times by `buildAudio`).
-            srcInfo[i]   = (assetTrack, srcStart, clampedSrcDur)
+            srcInfo[i]     = (assetTrack, srcStart, clampedSrcDur)
+            orientations[i] = SourceOrientation.orientation(
+                for: (try? await assetTrack.load(.preferredTransform)) ?? .identity
+            )
             spareHead[i] = max(0, srcStart)
             spareTail[i] = max(0, assetTrackDur - (srcStart + clampedSrcDur))
 
@@ -581,12 +588,14 @@ public actor CompositionBuilder {
                     }
                     imageLayers.sort { $0.zPosition < $1.zPosition }
                 }
-                instructions.append(UnifiedCompositorInstruction(
+                let bodyInstruction = UnifiedCompositorInstruction(
                     timeRange:            cmRange(bodyStart, bodyEnd),
                     foregroundTrackID:    segTrackID,
                     foregroundAdjustment: seg.adjustment,
                     imageLayers:          imageLayers
-                ))
+                )
+                bodyInstruction.foregroundOrientation = orientations[i]
+                instructions.append(bodyInstruction)
             }
 
             // Transition to next segment (legacy AVPlayer path — best-effort only).
@@ -651,7 +660,7 @@ public actor CompositionBuilder {
                 }
             }
 
-            instructions.append(UnifiedCompositorInstruction(
+            let transitionInstruction = UnifiedCompositorInstruction(
                 timeRange:             cmRange(transStart, transEnd),
                 foregroundTrackID:     trackAID,
                 foregroundAdjustment:  fgAdj,
@@ -663,7 +672,12 @@ public actor CompositionBuilder {
                 imageLayers:           transImageLayers,
                 transitionFgImageSpec: transFgImageSpec,
                 transitionBgImageSpec: transBgImageSpec
-            ))
+            )
+            // LOCAL PATCH (VENDORED.md #9): which clip sits on trackA alternates, so the
+            // orientations follow the same even/odd rule as fgAdj / bgAdj above.
+            transitionInstruction.foregroundOrientation = isEven ? orientations[i] : orientations[i + 1]
+            transitionInstruction.backgroundOrientation = isEven ? orientations[i + 1] : orientations[i]
+            instructions.append(transitionInstruction)
         }
 
         return coverGapsUnified(

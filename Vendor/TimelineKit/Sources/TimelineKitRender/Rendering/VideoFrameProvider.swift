@@ -1,5 +1,6 @@
 import TimelineKitCore
 import AVFoundation
+import ImageIO
 import CoreImage
 import CoreVideo
 
@@ -98,6 +99,10 @@ public final class ExportFrameProvider {
         var pendingFrame: (time: CMTime, buffer: CVPixelBuffer)?
         var didReachEnd = false
         var lastLoggedRequestCount = 0
+        /// LOCAL PATCH (VENDORED.md #9): the source's display rotation, read once when the
+        /// reader is built. Decoded frames arrive as stored, so portrait footage is
+        /// sideways until this is applied.
+        var orientation: CGImagePropertyOrientation = .up
 
 #if DEBUG
         var requestCount = 0
@@ -188,7 +193,11 @@ extension ExportFrameProvider: VideoFrameProviderProtocol {
         }
 #endif
 
-        return VideoFrameImage(image: CIImage(cvPixelBuffer: frame.buffer), isCanvasFrame: false)
+        // LOCAL PATCH (VENDORED.md #9): turn the frame the way the file says it should be
+        // shown, before anything downstream fits it to the canvas.
+        let image = SourceOrientation.applied(state.orientation,
+                                              to: CIImage(cvPixelBuffer: frame.buffer))
+        return VideoFrameImage(image: image, isCanvasFrame: false)
     }
 
     public func prepare(for item: AVPlayerItem) {
@@ -579,6 +588,7 @@ extension ExportFrameProvider: VideoFrameProviderProtocol {
             guard let track = state.asset.tracks(withMediaType: .video).first else {
                 return
             }
+            state.orientation = SourceOrientation.orientation(for: track.preferredTransform)
 
             let outputSettings: [String: Any] = [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,

@@ -1,5 +1,6 @@
 import TimelineKitCore
 import AVFoundation
+import ImageIO
 import CoreImage
 import CoreMedia
 
@@ -60,6 +61,12 @@ final class UnifiedCompositorInstruction: NSObject, AVVideoCompositionInstructio
     /// V5.1 BUG 1: 主视频轨尾端黑屏指令。true 时 UnifiedCompositor 跳过取帧、
     /// 直接渲染纯黑画面，让超出主视频轨结束点的音频继续播放但画面归零。
     let isBlackOut: Bool
+
+    /// LOCAL PATCH (VENDORED.md #9). `request.sourceFrame(byTrackID:)` hands back frames as
+    /// they are stored, so portrait footage arrives sideways. Only the layer-instruction
+    /// path gets the rotation applied for it; this compositor must do it itself.
+    var foregroundOrientation: CGImagePropertyOrientation = .up
+    var backgroundOrientation: CGImagePropertyOrientation = .up
 
     /// V6: Image layers without AVAssetTrack sources. When non-empty the compositor
     /// synthesises CIImage frames from `ImageLayerComposer` instead of calling
@@ -287,13 +294,19 @@ print("[UC] t=\(t) imageLayers=\(instr.imageLayers.map { "z=\($0.zPosition) rang
         // 4. image → image   (both pure image specs; pure-image transition)
         var sourceImage: CIImage?
         if let fg = fgBuf {
-            var fgImg = coverFitToCanvas(CIImage(cvPixelBuffer: fg), canvasRect: canvasRect)
+            var fgImg = coverFitToCanvas(
+                SourceOrientation.applied(instr.foregroundOrientation, to: CIImage(cvPixelBuffer: fg)),
+                canvasRect: canvasRect
+            )
             if !instr.foregroundAdjustment.isIdentity {
                 fgImg = applyAdjustments(instr.foregroundAdjustment, to: fgImg)
             }
             if let bg = bgBuf, fgOpacity < 1, fgOpacity > 0 {
                 // Case 1 – video → video transition blend.
-                var bgImg = coverFitToCanvas(CIImage(cvPixelBuffer: bg), canvasRect: canvasRect)
+                var bgImg = coverFitToCanvas(
+                    SourceOrientation.applied(instr.backgroundOrientation, to: CIImage(cvPixelBuffer: bg)),
+                    canvasRect: canvasRect
+                )
                 if !instr.backgroundAdjustment.isIdentity {
                     bgImg = applyAdjustments(instr.backgroundAdjustment, to: bgImg)
                 }
@@ -314,7 +327,10 @@ print("[UC] t=\(t) imageLayers=\(instr.imageLayers.map { "z=\($0.zPosition) rang
                 sourceImage = fgImg
             }
         } else if let bg = bgBuf {
-            var bgImg = coverFitToCanvas(CIImage(cvPixelBuffer: bg), canvasRect: canvasRect)
+            var bgImg = coverFitToCanvas(
+                SourceOrientation.applied(instr.backgroundOrientation, to: CIImage(cvPixelBuffer: bg)),
+                canvasRect: canvasRect
+            )
             if !instr.backgroundAdjustment.isIdentity {
                 bgImg = applyAdjustments(instr.backgroundAdjustment, to: bgImg)
             }

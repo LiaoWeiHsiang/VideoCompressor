@@ -11,6 +11,11 @@ import Foundation
 /// blocking a thread and writing all of one track before the other (which deadlocks).
 enum AudioVideoFactory {
 
+    /// What the frames depict. `quadrants` paints four flat corners so a test can tell
+    /// whether anything downstream rotated, flipped or cropped the picture.
+    enum Pattern { case noise, quadrants }
+
+
     static func makeVideoWithAudio(
         seconds: Double = 4,
         size: CGSize = CGSize(width: 640, height: 480),
@@ -19,7 +24,8 @@ enum AudioVideoFactory {
         toneHz: Double = 440,
         /// Rotation to record on the track, the way a phone marks portrait footage that is
         /// still *stored* landscape. `.identity` leaves the frames as written.
-        preferredTransform: CGAffineTransform = .identity
+        preferredTransform: CGAffineTransform = .identity,
+        pattern: Pattern = .noise
     ) async throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -79,7 +85,7 @@ enum AudioVideoFactory {
                         return
                     }
                     autoreleasepool {
-                        if let buffer = makePixelBuffer(adaptor: adaptor, size: size, frameIndex: frameIndex) {
+                        if let buffer = makePixelBuffer(adaptor: adaptor, size: size, frameIndex: frameIndex, pattern: pattern) {
                             adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frameIndex), timescale: fps))
                         }
                     }
@@ -234,7 +240,8 @@ enum AudioVideoFactory {
     private static func makePixelBuffer(
         adaptor: AVAssetWriterInputPixelBufferAdaptor,
         size: CGSize,
-        frameIndex: Int
+        frameIndex: Int,
+        pattern: Pattern
     ) -> CVPixelBuffer? {
         guard let pool = adaptor.pixelBufferPool else { return nil }
         var out: CVPixelBuffer?
@@ -253,6 +260,23 @@ enum AudioVideoFactory {
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
         ) {
+            if pattern == .quadrants {
+                // Four flat, saturated corners. Any rotation, flip or crop applied along
+                // the way rearranges them, which random noise could never reveal.
+                let w = size.width / 2, h = size.height / 2
+                let corners: [(CGRect, CGColor)] = [
+                    (CGRect(x: 0, y: 0, width: w, height: h), CGColor(red: 1, green: 0, blue: 0, alpha: 1)),
+                    (CGRect(x: w, y: 0, width: w, height: h), CGColor(red: 0, green: 1, blue: 0, alpha: 1)),
+                    (CGRect(x: 0, y: h, width: w, height: h), CGColor(red: 0, green: 0, blue: 1, alpha: 1)),
+                    (CGRect(x: w, y: h, width: w, height: h), CGColor(red: 1, green: 1, blue: 0, alpha: 1))
+                ]
+                for (rect, color) in corners {
+                    context.setFillColor(color)
+                    context.fill(rect)
+                }
+                return buffer
+            }
+
             let blockSize: CGFloat = 64
             var y: CGFloat = 0
             while y < size.height {

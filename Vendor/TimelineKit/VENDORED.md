@@ -119,6 +119,29 @@ the package. Using it therefore means accepting its export path, which we must c
    clips have no spare footage, so the window collapses to zero and the join degrades to a
    hard cut rather than dissolving against black.
 
+9. Source rotation is applied wherever frames are rendered by hand. New file
+   `Sources/TimelineKitRender/Rendering/SourceOrientation.swift`, used from
+   `VideoFrameProvider.frame(for:at:)` and `UnifiedCompositor.startRequest`, with the
+   orientation carried on `UnifiedCompositorInstruction` and populated by
+   `CompositionBuilder`.
+
+   A track's rotation lives in `preferredTransform`, not in its frames — phone portrait
+   footage is stored landscape and flagged to be turned 90°. Only the AVFoundation
+   layer-instruction path applies that for you, which is the path used for an export with
+   no effects. The live preview (`VideoLayerComposer` → `VideoFrameProvider`) and the
+   effects path (`UnifiedCompositor`, via `request.sourceFrame(byTrackID:)`) both receive
+   frames as stored and fitted them to the canvas sideways, so a portrait clip showed as a
+   cropped middle strip of a rotated picture.
+
+   The rotation must **not** be multiplied into a `CIImage` directly: `preferredTransform`
+   is expressed in a top-left origin space and Core Image uses bottom-left, so the matrix
+   turns the picture the wrong way or mirrors it. Map to `CGImagePropertyOrientation` and
+   use `CIImage.oriented(_:)`, which is defined in display terms; then re-anchor the extent
+   to the origin, since `fitTransform` reads only its width and height.
+
+   In a transition the two clips alternate between trackA and trackB, so foreground and
+   background orientations follow the same even/odd rule as `fgAdj` / `bgAdj`.
+
 ## Gotchas found while integrating (not patches — call sites must handle these)
 
 - **Canvas presets are all 720-based** (`EditorCanvas.Preset` → 1280×720 etc.), so
