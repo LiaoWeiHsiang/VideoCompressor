@@ -319,7 +319,7 @@ public final class EditorStore: @MainActor Identifiable {
 
     @discardableResult public func addVisualSegment(localURL: URL, nativeDuration: Double?, targetTrackID: UUID? = nil) -> UUID? {
         let segmentID = UUID(); let playheadTime = selection.playheadTime
-        var insertedStart: Double?
+        var insertedPlayhead: Double?
         mutate("新增素材") { tl in
             let trackIndex: Int?
             if let targetTrackID {
@@ -350,10 +350,22 @@ public final class EditorStore: @MainActor Identifiable {
             let insertStart: Double
             if targetTrackID == nil {
                 let existing = tl.tracks[ti].segments
-                let underPlayhead = existing.first {
-                    playheadTime >= $0.targetRange.start && playheadTime < $0.targetRange.end
+
+                // Sitting exactly on a join, the playhead belongs to neither clip, so the
+                // new one goes into the join itself — after the clip that ends there. A
+                // frame of tolerance, because the playhead is positioned by scrubbing and
+                // will rarely land on the exact value.
+                let tolerance = 1.0 / Double(max(tl.canvas.fps, 1))
+                let onJoin = existing.first {
+                    abs($0.targetRange.start - playheadTime) < tolerance && $0.targetRange.start > 0
                 }
-                insertStart = underPlayhead?.targetRange.end
+
+                let underPlayhead = onJoin == nil ? existing.first {
+                    playheadTime >= $0.targetRange.start && playheadTime < $0.targetRange.end
+                } : nil
+
+                insertStart = onJoin?.targetRange.start
+                    ?? underPlayhead?.targetRange.end
                     ?? (existing.map(\.targetRange.end).max() ?? 0)
 
                 // Ripple everything at or after the insertion point, so the new clip takes
@@ -365,13 +377,21 @@ public final class EditorStore: @MainActor Identifiable {
 
                 // A transition describes a join that no longer exists once something is
                 // inserted into it; leaving it would show a badge that renders nothing.
-                if let leading = underPlayhead {
-                    tl.transitions.removeAll { $0.leadingSegmentID == leading.id }
-                }
+                // Matched by where the join *is* rather than by which clip was watched, so
+                // it covers landing on a join as well as landing inside a clip. The leading
+                // clip starts before the insertion point, so the ripple above left its end
+                // where it was.
+                let splitJoins = Set(
+                    existing.filter { abs($0.targetRange.end - insertStart) < 0.001 }.map(\.id)
+                )
+                tl.transitions.removeAll { splitJoins.contains($0.leadingSegmentID) }
             } else {
                 insertStart = playheadTime
             }
-            insertedStart = insertStart
+            // Park the playhead inside the new clip rather than on its leading edge: that
+            // edge is a join, and the join rule above would then put the *next* addition
+            // in front of this one, reversing the order of successive adds.
+            insertedPlayhead = insertStart + dur / 2
 
             let segment = EditorSegment(id: segmentID, materialID: materialID, sourceRange: isVideo ? TimeRange(start: 0, duration: dur) : nil, targetRange: TimeRange(start: insertStart, duration: dur), speed: 1.0, content: isVideo ? .video(SegmentContent.VideoContent()) : .image(SegmentContent.ImageContent()))
             tl.tracks[ti].insert(segment)
@@ -384,8 +404,8 @@ public final class EditorStore: @MainActor Identifiable {
             // the playhead behind means a second add lands after the *same* earlier clip,
             // so adding several in a row stacks them in reverse — and the user never sees
             // what they just added.
-            if targetTrackID == nil, let insertedStart {
-                selection.playheadTime = insertedStart
+            if targetTrackID == nil, let insertedPlayhead {
+                selection.playheadTime = insertedPlayhead
             }
             if let targetTrackID {
                 document.cancelPendingCleanup(for: targetTrackID)

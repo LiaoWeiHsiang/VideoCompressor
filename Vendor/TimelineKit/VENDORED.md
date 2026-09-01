@@ -152,9 +152,19 @@ the package. Using it therefore means accepting its export path, which we must c
     clip under the playhead instead of appending to the end of the main track, rippling
     later segments along, and drops any transition whose join the insertion splits.
 
-    The playhead then follows the new clip. Without that, adding several clips in a row
-    puts each one after the *same* earlier clip, so they end up in reverse order — and the
-    user never sees what they just added.
+    A playhead sitting on a join belongs to neither clip, so the new one goes *into* the
+    join — after the clip that ends there. One frame of tolerance, since the playhead is
+    positioned by scrubbing. A join at t=0 is excluded: there is no preceding clip.
+
+    The playhead then follows the new clip, parked at its **midpoint**. Without following
+    at all, adding several clips in a row puts each one after the *same* earlier clip and
+    they end up in reverse order. Parking on the new clip's leading edge reintroduces
+    exactly that, because that edge is itself a join — the two rules cancel out. The
+    midpoint is unambiguously inside the clip and still shows what was added.
+
+    Transitions spanning the split join are matched by *where the join is* (leading clip
+    ending at the insertion point) rather than by which clip was being watched, so it works
+    whether the playhead landed inside a clip or on a join.
 
 11. `Sources/TimelineKitCore/TimelineDocument.swift` — added `updateMaterialURL`, which
     repoints a material at a different file **without** pushing an undo entry. Swapping a

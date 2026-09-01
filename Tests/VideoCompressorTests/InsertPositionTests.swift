@@ -120,3 +120,92 @@ final class InsertPositionTests: XCTestCase {
         XCTAssertEqual(seconds, 9.0, accuracy: 0.5, "4 + 2 + 3 should render as ~9s")
     }
 }
+
+// MARK: - Landing on a join
+
+extension InsertPositionTests {
+
+    /// On a join the playhead belongs to neither clip, so the new one goes into the join —
+    /// after the clip that ends there, not after the one that starts there.
+    @MainActor
+    func testClipLandsInTheJoinWhenThePlayheadIsOnASplitPoint() async throws {
+        let (store, urls) = try await makeStore(clipLengths: [4, 3, 5])
+        defer { urls.forEach { try? FileManager.default.removeItem(at: $0) } }
+        XCTAssertEqual(starts(store), [0, 4, 7])
+
+        store.selection.playheadTime = 7      // exactly the join between clip 2 and clip 3
+
+        let added = try await AudioVideoFactory.makeVideoWithAudio(seconds: 2)
+        defer { try? FileManager.default.removeItem(at: added) }
+        let duration = try await AVURLAsset(url: added).load(.duration)
+        let newID = store.addVisualSegment(localURL: added, nativeDuration: CMTimeGetSeconds(duration))
+
+        print("JOIN_STARTS: \(starts(store))")
+        XCTAssertEqual(starts(store), [0, 4, 7, 9],
+                       "the new clip should occupy the join at 7s")
+
+        let inserted = try XCTUnwrap(store.timeline.segment(id: try XCTUnwrap(newID)))
+        XCTAssertEqual(inserted.targetRange.start, 7, accuracy: 0.01,
+                       "on a join the clip goes into it, not after the following clip")
+    }
+
+    /// Scrubbing lands near a join rather than exactly on it, so the tolerance has to be
+    /// wide enough to be usable — but the distinction still has to hold well inside a clip.
+    @MainActor
+    func testJoinDetectionToleratesScrubbingImprecision() async throws {
+        let (store, urls) = try await makeStore(clipLengths: [4, 3])
+        defer { urls.forEach { try? FileManager.default.removeItem(at: $0) } }
+
+        store.selection.playheadTime = 4.01   // a third of a frame past the join at 4s
+
+        let added = try await AudioVideoFactory.makeVideoWithAudio(seconds: 2)
+        defer { try? FileManager.default.removeItem(at: added) }
+        let duration = try await AVURLAsset(url: added).load(.duration)
+        _ = store.addVisualSegment(localURL: added, nativeDuration: CMTimeGetSeconds(duration))
+
+        XCTAssertEqual(starts(store), [0, 4, 6], "just past a join still counts as on it")
+    }
+
+    /// Well inside the second clip the old rule applies: after the clip being watched.
+    @MainActor
+    func testInsideAClipStillInsertsAfterIt() async throws {
+        let (store, urls) = try await makeStore(clipLengths: [4, 3])
+        defer { urls.forEach { try? FileManager.default.removeItem(at: $0) } }
+
+        store.selection.playheadTime = 5.5    // middle of the second clip (4s–7s)
+
+        let added = try await AudioVideoFactory.makeVideoWithAudio(seconds: 2)
+        defer { try? FileManager.default.removeItem(at: added) }
+        let duration = try await AVURLAsset(url: added).load(.duration)
+        _ = store.addVisualSegment(localURL: added, nativeDuration: CMTimeGetSeconds(duration))
+
+        XCTAssertEqual(starts(store), [0, 4, 7], "should follow the clip being watched")
+    }
+
+    /// The transition removed must be the one spanning the join actually being split.
+    @MainActor
+    func testTransitionAtTheJoinBeingSplitIsTheOneRemoved() async throws {
+        let (store, urls) = try await makeStore(clipLengths: [4, 3, 5])
+        defer { urls.forEach { try? FileManager.default.removeItem(at: $0) } }
+
+        let segments = try XCTUnwrap(store.timeline.mainTrack?.segments)
+            .sorted { $0.targetRange.start < $1.targetRange.start }
+        XCTAssertNotNil(store.addTransition(between: segments[0].id, and: segments[1].id,
+                                            type: .fade, duration: 0.5))
+        XCTAssertNotNil(store.addTransition(between: segments[1].id, and: segments[2].id,
+                                            type: .fade, duration: 0.5))
+        XCTAssertEqual(store.timeline.transitions.count, 2)
+
+        store.selection.playheadTime = 7      // the join between clips 2 and 3
+
+        let added = try await AudioVideoFactory.makeVideoWithAudio(seconds: 2)
+        defer { try? FileManager.default.removeItem(at: added) }
+        let duration = try await AVURLAsset(url: added).load(.duration)
+        _ = store.addVisualSegment(localURL: added, nativeDuration: CMTimeGetSeconds(duration))
+
+        let remaining = store.timeline.transitions
+        XCTAssertEqual(remaining.count, 1, "only the split join's transition should go")
+        XCTAssertEqual(remaining.first?.leadingSegmentID, segments[0].id,
+                       "the untouched join between clips 1 and 2 should survive")
+    }
+}
