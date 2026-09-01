@@ -209,3 +209,68 @@ extension InsertPositionTests {
                        "the untouched join between clips 1 and 2 should survive")
     }
 }
+
+// MARK: - The real flow: split, then add
+
+extension InsertPositionTests {
+
+    /// Split a clip, then add another straight away.
+    ///
+    /// This is the actual sequence a user performs, and it is not the same as setting the
+    /// playhead to a join by hand: the split point comes from `splitSegment`'s own
+    /// clamping, so whether it lands exactly on the playhead is the package's decision
+    /// rather than ours.
+    @MainActor
+    func testAddingRightAfterASplitLandsBetweenTheHalves() async throws {
+        let (store, urls) = try await makeStore(clipLengths: [6])
+        defer { urls.forEach { try? FileManager.default.removeItem(at: $0) } }
+
+        let original = try XCTUnwrap(store.timeline.mainTrack?.segments.first)
+        store.selection.playheadTime = 2.5
+        let rightID = store.splitSegment(id: original.id, at: store.selection.playheadTime)
+        XCTAssertNotNil(rightID, "split did not happen")
+        XCTAssertEqual(starts(store), [0, 2.5], "split should leave halves at 0s and 2.5s")
+        XCTAssertEqual(store.selection.playheadTime, 2.5, accuracy: 0.001,
+                       "the playhead should still be sitting on the new join")
+
+        let added = try await AudioVideoFactory.makeVideoWithAudio(seconds: 2)
+        defer { try? FileManager.default.removeItem(at: added) }
+        let duration = try await AVURLAsset(url: added).load(.duration)
+        let newID = store.addVisualSegment(localURL: added, nativeDuration: CMTimeGetSeconds(duration))
+
+        print("SPLIT_THEN_ADD_STARTS: \(starts(store))")
+        XCTAssertEqual(starts(store), [0, 2.5, 4.5],
+                       "the new clip belongs between the halves, pushing the back half to 4.5s")
+
+        let inserted = try XCTUnwrap(store.timeline.segment(id: try XCTUnwrap(newID)))
+        XCTAssertEqual(inserted.targetRange.start, 2.5, accuracy: 0.01,
+                       "added after the front half, not after the back half")
+
+        // The back half must still be the back half, not reordered behind the new clip.
+        let back = try XCTUnwrap(store.timeline.segment(id: try XCTUnwrap(rightID)))
+        XCTAssertEqual(back.targetRange.start, 4.5, accuracy: 0.01)
+    }
+
+    /// Splitting very close to a clip's edge is clamped by the package, leaving the
+    /// playhead short of the join it created. The insert should still read as "after the
+    /// front half" — here via the inside-a-clip rule rather than the join rule.
+    @MainActor
+    func testAddingAfterAClampedSplitStillLandsAfterTheFrontHalf() async throws {
+        let (store, urls) = try await makeStore(clipLengths: [6])
+        defer { urls.forEach { try? FileManager.default.removeItem(at: $0) } }
+
+        let original = try XCTUnwrap(store.timeline.mainTrack?.segments.first)
+        store.selection.playheadTime = 0.05          // closer to the edge than the 0.2s floor
+        _ = store.splitSegment(id: original.id, at: store.selection.playheadTime)
+        XCTAssertEqual(starts(store), [0, 0.2], "split clamped to the 0.2s minimum")
+
+        let added = try await AudioVideoFactory.makeVideoWithAudio(seconds: 2)
+        defer { try? FileManager.default.removeItem(at: added) }
+        let duration = try await AVURLAsset(url: added).load(.duration)
+        _ = store.addVisualSegment(localURL: added, nativeDuration: CMTimeGetSeconds(duration))
+
+        print("CLAMPED_SPLIT_STARTS: \(starts(store))")
+        XCTAssertEqual(starts(store), [0, 0.2, 2.2],
+                       "still between the halves despite the playhead trailing the split")
+    }
+}
