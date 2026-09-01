@@ -23,6 +23,10 @@ struct ContentView: View {
     @State private var isPreparingEditor = false
     @State private var editorSession: EditorSession?
     @State private var hasRestoredQueue = false
+    @State private var showImmichSettings = false
+    @State private var uploadToImmich = false
+    @State private var isUploading = false
+    @State private var uploadSummary: String?
 
     @StateObject private var compressor = VideoCompressor()
 
@@ -208,7 +212,37 @@ struct ContentView: View {
                         }
                     }
 
+                    Section {
+                        Toggle("壓縮後上傳 Immich", isOn: $uploadToImmich)
+                            .disabled(isProcessingQueue || !ImmichCredentialStore.isConfigured)
+                        Button("Immich 伺服器設定…") { showImmichSettings = true }
+                            .disabled(isProcessingQueue)
+                    } header: {
+                        Text("上傳")
+                    } footer: {
+                        Text(ImmichCredentialStore.isConfigured
+                             ? "上傳時會沿用影片的拍攝日期，在 Immich 的時間軸上排在正確的位置。"
+                             : "尚未設定伺服器。先填好網址與 API 金鑰才能開啟上傳。")
+                    }
+
                     if !doneItems.isEmpty {
+                        Section {
+                            Button {
+                                Task { await uploadAllToImmich() }
+                            } label: {
+                                if isUploading {
+                                    HStack { ProgressView(); Text("上傳中…") }
+                                } else {
+                                    Text("全部上傳到 Immich")
+                                }
+                            }
+                            .disabled(isUploading || !ImmichCredentialStore.isConfigured)
+
+                            if let uploadSummary {
+                                Text(uploadSummary).foregroundStyle(.secondary).font(.callout)
+                            }
+                        }
+
                         Section {
                             Button {
                                 Task { await saveAllToPhotos() }
@@ -249,6 +283,9 @@ struct ContentView: View {
             }, message: {
                 Text(errorMessage ?? "")
             })
+            .sheet(isPresented: $showImmichSettings) {
+                ImmichSettingsView()
+            }
             .sheet(isPresented: $showBrowser) {
                 VideoBrowserView { assets in
                     addToQueue(assets: assets)
@@ -548,6 +585,20 @@ struct ContentView: View {
                     )
                 }
                 itemTimer.mark("compress")
+                if uploadToImmich, let credentials = ImmichCredentialStore.credentials {
+                    // Uploading as each clip lands rather than at the end means a long run
+                    // is already partly on the server if it is interrupted.
+                    let client = ImmichClient(credentials: credentials)
+                    do {
+                        _ = try await client.upload(
+                            fileURL: result,
+                            createdAt: dateMode == .now ? Date() : (queue[index].creationDate ?? Date()),
+                            filename: result.lastPathComponent
+                        )
+                    } catch {
+                        queue[index].errorMessage = "上傳失敗：\(error.localizedDescription)"
+                    }
+                }
                 itemTimer.report(extra: ["edited": queue[index].editedTimeline != nil ? "yes" : "no"])
                 queue[index].outputURL = result
                 queue[index].outputSizeText = FileSizeFormatter.string(for: result)
@@ -561,6 +612,50 @@ struct ContentView: View {
         }
 
         currentProcessingID = nil
+    }
+
+    /// Uploads every finished clip.
+    ///
+    /// Each is dated by its own shooting time rather than by now, so Immich files it on the
+    /// day it was filmed. Failures are counted rather than aborting the run: one clip the
+    /// server rejects should not strand the rest.
+    private func uploadAllToImmich() async {
+        guard let credentials = ImmichCredentialStore.credentials else {
+            errorMessage = "尚未設定 Immich 伺服器"
+            return
+        }
+        isUploading = true
+        uploadSummary = nil
+        defer { isUploading = false }
+
+        let client = ImmichClient(credentials: credentials)
+        var uploaded = 0
+        var duplicates = 0
+        var failures: [String] = []
+
+        for item in queue where item.status == .done {
+            guard let url = item.outputURL else { continue }
+            do {
+                let outcome = try await client.upload(
+                    fileURL: url,
+                    createdAt: item.outputCreationDate ?? item.creationDate ?? Date(),
+                    filename: url.lastPathComponent
+                )
+                switch outcome {
+                case .created:   uploaded += 1
+                case .duplicate: duplicates += 1
+                }
+            } catch {
+                failures.append(error.localizedDescription)
+            }
+        }
+
+        var parts: [String] = []
+        if uploaded > 0 { parts.append("已上傳 \(uploaded) 部") }
+        if duplicates > 0 { parts.append("\(duplicates) 部伺服器已有") }
+        if !failures.isEmpty { parts.append("\(failures.count) 部失敗") }
+        uploadSummary = parts.isEmpty ? "沒有可上傳的影片" : parts.joined(separator: "，")
+        if let first = failures.first { errorMessage = first }
     }
 
     private func saveAllToPhotos() async {
