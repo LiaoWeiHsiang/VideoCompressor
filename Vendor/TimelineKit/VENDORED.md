@@ -184,6 +184,23 @@ the package. Using it therefore means accepting its export path, which we must c
     copies where it can, which is instant when PhotosUI staged the file in this app's own
     container.
 
+13. Per-segment **video** speed. Upstream's header says variable speed is "applied to
+    audio segments only", and its one speed control is a disabled stub, so a clip marked 2x
+    played at normal rate and overran its slot.
+
+    `seg.speed` is now honoured in four places, and missing any one desynchronises sound
+    from picture — which looks fine in a still frame: `srcRange` (a 2x clip consumes twice
+    the footage), `buildVideoTrackUnified` and `buildVideoTrackSinglePass` (separate paths
+    for with and without effects), and the main track's native audio in `buildAudio`.
+    `EditorStore.setVideoSpeed` resizes the slot and ripples what follows; `SpeedPanel` is
+    the UI.
+
+14. `Sources/TimelineKitCore/TimelineDocument.swift` — `trimSegment` clamps a segment's slot
+    to the footage that exists. The drag handles already capped this, but the API did not,
+    so any caller could produce a segment whose tail has nothing to show: a 4s clip asked
+    for 30s rendered 30s. Speed is accounted for (a 0.5x clip legitimately occupies twice
+    its footage) and stills are exempt, having no footage to run out of.
+
 ## Gotchas found while integrating (not patches — call sites must handle these)
 
 - **Canvas presets are all 720-based** (`EditorCanvas.Preset` → 1280×720 etc.), so

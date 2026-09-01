@@ -210,6 +210,22 @@ public final class TimelineDocument: Identifiable {
                 let oldStart = tl.tracks[ti].segments[si].targetRange.start
                 let oldEnd = tl.tracks[ti].segments[si].targetRange.end
                 var finalRange = newTargetRange
+
+                // LOCAL PATCH (see VENDORED.md #14). Cap the slot at the footage that
+                // actually exists. The drag handles already do this, but the API did not,
+                // so any other caller could produce a segment whose tail has nothing to
+                // show — a 4s clip asked for 30s rendered 30s. Stills are exempt: they have
+                // no footage to run out of, which is the point of putting one on a timeline.
+                let segment = tl.tracks[ti].segments[si]
+                if let footage = tl.materials[segment.materialID]?.nativeDuration, footage > 0 {
+                    let inPoint = newSourceRangeStart ?? segment.sourceRange?.start ?? 0
+                    let speed = min(max(segment.speed, 0.25), 4.0)
+                    let available = max((footage - inPoint) / speed, 0.05)
+                    if finalRange.duration > available + 0.001 {
+                        finalRange = TimeRange(start: finalRange.start, duration: available)
+                    }
+                }
+
                 if newTargetRange.start < oldStart - 0.001 {
                     finalRange = TimeRange(start: oldStart, duration: newTargetRange.duration)
                 } else if newTargetRange.start > oldStart + 0.001 {
