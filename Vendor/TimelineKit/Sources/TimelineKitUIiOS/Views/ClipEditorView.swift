@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import SwiftUI
 import PhotosUI
+import Photos
 import AVFoundation
 import TimelineKitCore
 import TimelineKitRender
@@ -420,6 +421,44 @@ public struct ClipEditorView: View {
                 pendingVisualTrackID = nil
             }
         }
+
+        // LOCAL PATCH (see VENDORED.md #12). `loadTransferable` pays for the whole file
+        // twice — PhotosUI exports the asset, then `VideoTransferable` copies the export —
+        // so adding a long clip stalls the editor for as long as that takes.
+        //
+        // Ask Photos for the fastest version it can hand over instead, put the clip on the
+        // timeline straight away, and fetch the full-quality copy behind it. The swap is
+        // invisible: it is the same footage, so every edit made in the meantime still
+        // applies, and it is deliberately kept off the undo stack.
+        if let identifier = item.itemIdentifier,
+           let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject,
+           let quickURL = await Self.videoURL(for: asset, deliveryMode: .fastFormat) {
+
+            let native = await avDuration(of: quickURL) ?? 0
+            let segmentID = await MainActor.run {
+                store.addVisualSegment(
+                    localURL: quickURL,
+                    nativeDuration: native,
+                    targetTrackID: targetTrackID
+                )
+            }
+
+            guard let segmentID else { return }
+            let materialID = await MainActor.run { store.materialID(forSegment: segmentID) }
+            guard let materialID else { return }
+
+            // The quick URL belongs to Photos and is only dependable while this request is
+            // alive, so a copy this app owns still has to be made — just not while the user
+            // waits for it.
+            Task.detached(priority: .utility) {
+                guard let fullURL = await Self.videoURL(for: asset, deliveryMode: .highQualityFormat),
+                      let owned = Self.copyIntoTemporary(fullURL)
+                else { return }
+                await MainActor.run { store.updateMaterialURL(materialID: materialID, to: owned) }
+            }
+            return
+        }
+
         // Try video first.
         if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
             let native = await avDuration(of: movie.url) ?? 0
@@ -446,6 +485,36 @@ public struct ClipEditorView: View {
                     targetTrackID: targetTrackID
                 )
             }
+        }
+    }
+
+    /// LOCAL PATCH (VENDORED.md #12): the file Photos itself holds, without an export.
+    nonisolated private static func videoURL(
+        for asset: PHAsset,
+        deliveryMode: PHVideoRequestOptionsDeliveryMode
+    ) async -> URL? {
+        let options = PHVideoRequestOptions()
+        options.deliveryMode = deliveryMode
+        options.isNetworkAccessAllowed = true      // iCloud clips still have to come down
+        options.version = .current                 // honour edits made in Photos
+
+        return await withCheckedContinuation { continuation in
+            PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { avAsset, _, _ in
+                continuation.resume(returning: (avAsset as? AVURLAsset)?.url)
+            }
+        }
+    }
+
+    nonisolated private static func copyIntoTemporary(_ url: URL) -> URL? {
+        let ext = url.pathExtension.isEmpty ? "mov" : url.pathExtension
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension(ext)
+        do {
+            try FileManager.default.copyItem(at: url, to: destination)
+            return destination
+        } catch {
+            return nil
         }
     }
 

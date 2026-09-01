@@ -148,6 +148,32 @@ the package. Using it therefore means accepting its export path, which we must c
    editor shows). Patching and testing only the first one produced a green suite while the
    preview stayed broken on device. Anything touching frame content must change both.
 
+10. `Sources/TimelineKitUIShared/EditorStore.swift` — `addVisualSegment` inserts after the
+    clip under the playhead instead of appending to the end of the main track, rippling
+    later segments along, and drops any transition whose join the insertion splits.
+
+    The playhead then follows the new clip. Without that, adding several clips in a row
+    puts each one after the *same* earlier clip, so they end up in reverse order — and the
+    user never sees what they just added.
+
+11. `Sources/TimelineKitCore/TimelineDocument.swift` — added `updateMaterialURL`, which
+    repoints a material at a different file **without** pushing an undo entry. Swapping a
+    placeholder for the full-quality copy of the same footage is not a user edit; recording
+    it would let undo step back to the lower-quality file and would push real edits out of
+    the bounded undo history.
+
+12. `Sources/TimelineKitUIiOS/Views/ClipEditorView.swift` and `SegmentReplacePanel.swift` —
+    adding a clip paid for the whole file twice: `loadTransferable` had PhotosUI export the
+    asset, and `VideoTransferable` then copied that export. Now Photos is asked for its
+    fastest available version (`deliveryMode: .fastFormat`), the clip goes on the timeline
+    immediately, and the full-quality copy is fetched behind it and swapped in via #11.
+
+    The quick URL belongs to Photos and is only dependable while its request is alive, so a
+    copy this app owns is still made — just not while the user waits. The remaining
+    `VideoTransferable` path (used when there is no `itemIdentifier`) now moves rather than
+    copies where it can, which is instant when PhotosUI staged the file in this app's own
+    container.
+
 ## Gotchas found while integrating (not patches — call sites must handle these)
 
 - **Canvas presets are all 720-based** (`EditorCanvas.Preset` → 1280×720 etc.), so

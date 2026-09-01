@@ -277,7 +277,14 @@ struct VideoTransferable: Transferable {
             let dest = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString)
                 .appendingPathExtension("mov")
-            try FileManager.default.copyItem(at: received.file, to: dest)
+            // LOCAL PATCH (VENDORED.md #12): moving is instant when PhotosUI already staged
+            // the file inside this app's container, which is the common case; copying a
+            // multi-gigabyte clip a second time is not. Fall back when it is elsewhere.
+            do {
+                try FileManager.default.moveItem(at: received.file, to: dest)
+            } catch {
+                try FileManager.default.copyItem(at: received.file, to: dest)
+            }
             return VideoTransferable(url: dest)
         }
     }

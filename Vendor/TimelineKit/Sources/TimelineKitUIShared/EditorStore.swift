@@ -137,6 +137,9 @@ public final class EditorStore: @MainActor Identifiable {
 
     public func mutate(_ label: String, _ body: (inout EditorTimeline) -> Void) { document.mutate(label, body) }
     public func mutateSubtitle(_ label: String, _ body: (inout EditorTimeline) -> Void) { document.mutateSubtitle(label, body) }
+    /// LOCAL PATCH (VENDORED.md #11): swap a material's file in place, outside undo.
+    public func updateMaterialURL(materialID: UUID, to url: URL) { document.updateMaterialURL(materialID: materialID, to: url) }
+    public func materialID(forSegment segmentID: UUID) -> UUID? { timeline.segment(id: segmentID)?.materialID }
     public func undo() { document.undo() }
     public func redo() { document.redo() }
 
@@ -316,6 +319,7 @@ public final class EditorStore: @MainActor Identifiable {
 
     @discardableResult public func addVisualSegment(localURL: URL, nativeDuration: Double?, targetTrackID: UUID? = nil) -> UUID? {
         let segmentID = UUID(); let playheadTime = selection.playheadTime
+        var insertedStart: Double?
         mutate("新增素材") { tl in
             let trackIndex: Int?
             if let targetTrackID {
@@ -337,8 +341,38 @@ public final class EditorStore: @MainActor Identifiable {
             let isVideo = nativeDuration != nil
             let asset = EditorAsset(id: materialID, type: isVideo ? .video : .image, localURL: localURL, nativeDuration: nativeDuration)
             tl.materials[materialID] = asset
-            let insertStart = targetTrackID == nil ? (tl.tracks[ti].segments.last?.targetRange.end ?? 0) : playheadTime
             let dur = nativeDuration ?? 3.0
+
+            // LOCAL PATCH (see VENDORED.md #10). Upstream always appended to the end of the
+            // main track, so adding a clip while looking at the middle of a long timeline
+            // dropped it somewhere off screen. Land it after the clip under the playhead —
+            // which is the one being watched — and push the rest along.
+            let insertStart: Double
+            if targetTrackID == nil {
+                let existing = tl.tracks[ti].segments
+                let underPlayhead = existing.first {
+                    playheadTime >= $0.targetRange.start && playheadTime < $0.targetRange.end
+                }
+                insertStart = underPlayhead?.targetRange.end
+                    ?? (existing.map(\.targetRange.end).max() ?? 0)
+
+                // Ripple everything at or after the insertion point, so the new clip takes
+                // its own slot instead of overlapping what follows.
+                for index in tl.tracks[ti].segments.indices
+                where tl.tracks[ti].segments[index].targetRange.start >= insertStart {
+                    tl.tracks[ti].segments[index].targetRange.start += dur
+                }
+
+                // A transition describes a join that no longer exists once something is
+                // inserted into it; leaving it would show a badge that renders nothing.
+                if let leading = underPlayhead {
+                    tl.transitions.removeAll { $0.leadingSegmentID == leading.id }
+                }
+            } else {
+                insertStart = playheadTime
+            }
+            insertedStart = insertStart
+
             let segment = EditorSegment(id: segmentID, materialID: materialID, sourceRange: isVideo ? TimeRange(start: 0, duration: dur) : nil, targetRange: TimeRange(start: insertStart, duration: dur), speed: 1.0, content: isVideo ? .video(SegmentContent.VideoContent()) : .image(SegmentContent.ImageContent()))
             tl.tracks[ti].insert(segment)
             if tl.tracks[ti].pendingUserCreated {
@@ -346,6 +380,13 @@ public final class EditorStore: @MainActor Identifiable {
             }
         }
         if timeline.segment(id: segmentID) != nil {
+            // LOCAL PATCH (VENDORED.md #10): follow the clip that was just added. Leaving
+            // the playhead behind means a second add lands after the *same* earlier clip,
+            // so adding several in a row stacks them in reverse — and the user never sees
+            // what they just added.
+            if targetTrackID == nil, let insertedStart {
+                selection.playheadTime = insertedStart
+            }
             if let targetTrackID {
                 document.cancelPendingCleanup(for: targetTrackID)
             }

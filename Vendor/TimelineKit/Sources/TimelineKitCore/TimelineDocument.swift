@@ -53,6 +53,22 @@ public final class TimelineDocument: Identifiable {
         redoStack.removeAll()
     }
 
+    /// LOCAL PATCH (see VENDORED.md #11). Repoints a material at a different file without
+    /// touching the undo stack.
+    ///
+    /// Swapping a quickly-obtained placeholder for the full-quality copy of the same
+    /// footage is not an edit the user made; recording it would let undo step back to the
+    /// lower-quality file, which is meaningless, and would push the user's real edits out
+    /// of the bounded undo history.
+    public func updateMaterialURL(materialID: UUID, to url: URL) {
+        guard var asset = timeline.materials[materialID], asset.localURL != url else { return }
+        asset.localURL = url
+        var t = timeline
+        t.materials[materialID] = asset
+        timeline = t
+        compositionVersion += 1
+    }
+
     public func mutateSubtitle(_ label: String, _ body: (inout EditorTimeline) -> Void) {
         let snapshot = timeline
         var t = timeline
