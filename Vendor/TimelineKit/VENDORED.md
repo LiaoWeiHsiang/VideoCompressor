@@ -142,6 +142,12 @@ the package. Using it therefore means accepting its export path, which we must c
    In a transition the two clips alternate between trackA and trackB, so foreground and
    background orientations follow the same even/odd rule as `fgAdj` / `bgAdj`.
 
+   **`VideoFrameProviderProtocol` has two implementations**, and they are used by different
+   screens: `ExportFrameProvider` (an `AVAssetReaderTrackOutput`) and `PreviewFrameProvider`
+   (an `AVPlayerItemVideoOutput`, installed by `CompositionCoordinator` — this is what the
+   editor shows). Patching and testing only the first one produced a green suite while the
+   preview stayed broken on device. Anything touching frame content must change both.
+
 ## Gotchas found while integrating (not patches — call sites must handle these)
 
 - **Canvas presets are all 720-based** (`EditorCanvas.Preset` → 1280×720 etc.), so

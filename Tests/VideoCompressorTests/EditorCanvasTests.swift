@@ -339,8 +339,12 @@ extension EditorCanvasTests {
                        "the effects render path ignored the clip's rotation")
     }
 
-    /// The live preview path: `VideoLayerComposer` pulls frames from `VideoFrameProvider`
-    /// and fits them to the canvas itself. This is what the editor actually shows.
+    /// The live preview path.
+    ///
+    /// It must be `PreviewFrameProvider` specifically: there are two implementations of
+    /// `VideoFrameProviderProtocol` and the editor installs this one, which pulls frames
+    /// from `AVPlayerItemVideoOutput`. Testing `ExportFrameProvider` instead passed while
+    /// the preview stayed broken on the device.
     @MainActor
     func testPortraitClipSurvivesThePreviewRenderPath() async throws {
         let url = try await AudioVideoFactory.makeVideoWithAudio(
@@ -356,23 +360,35 @@ extension EditorCanvasTests {
         print("PREVIEW_PATH SOURCE: \(expected)")
 
         let renderSize = CGSize(width: 1080, height: 1920)
-        let provider = ExportFrameProvider()
+        let provider = PreviewFrameProvider()
         provider.setCanvasSize(renderSize)
         let previousProvider = VideoLayerComposer.frameProvider
         VideoLayerComposer.frameProvider = provider
-        defer { VideoLayerComposer.frameProvider = previousProvider }
+        defer {
+            VideoLayerComposer.frameProvider = previousProvider
+            provider.invalidate()
+        }
 
         let spec = VideoLayerSpec(
             assetURL: url,
             renderSize: renderSize,
             timeRange: CMTimeRange(start: .zero, duration: CMTime(seconds: 2, preferredTimescale: 600))
         )
+        let at = CMTime(seconds: 1, preferredTimescale: 600)
         provider.preload(videoSpecs: [spec])
+        provider.seek(to: at, activeSpecs: [spec], playbackActive: false)
 
-        let image = try XCTUnwrap(
-            VideoLayerComposer.evaluate(spec: spec, at: CMTime(seconds: 1, preferredTimescale: 600)),
-            "preview produced no frame"
-        )
+        // This provider decodes through an AVPlayer, so the first frames are not ready
+        // synchronously; poll rather than assume.
+        var produced: CIImage?
+        for _ in 0..<120 {
+            if let image = VideoLayerComposer.evaluate(spec: spec, at: at) {
+                produced = image
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let image = try XCTUnwrap(produced, "preview produced no frame")
         let context = CIContext()
         var buffer: CVPixelBuffer?
         CVPixelBufferCreate(nil, Int(renderSize.width), Int(renderSize.height),

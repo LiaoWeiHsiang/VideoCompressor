@@ -800,6 +800,11 @@ public final class PreviewFrameProvider: VideoFrameProviderProtocol {
 
         var url: URL { segmentKey.url }
 
+        /// LOCAL PATCH (VENDORED.md #9). `AVPlayerItemVideoOutput` hands back frames as
+        /// stored — AVPlayer only applies the rotation at the layer level, which this
+        /// provider bypasses — so portrait footage arrives sideways.
+        let orientation: CGImagePropertyOrientation
+
 #if DEBUG
         var requestCount = 0
         var noNewPixelBufferCount = 0
@@ -812,6 +817,9 @@ public final class PreviewFrameProvider: VideoFrameProviderProtocol {
 
         init(key: SegmentKey, asset: AVURLAsset) {
             self.segmentKey = key
+            self.orientation = SourceOrientation.orientation(
+                for: asset.tracks(withMediaType: .video).first?.preferredTransform ?? .identity
+            )
             self.item = AVPlayerItem(asset: asset)
             self.output = Self.makeOutput()
             self.item.add(output)
@@ -1090,12 +1098,19 @@ public final class PreviewFrameProvider: VideoFrameProviderProtocol {
         ) else {
             if !isPlaybackActiveHint,
                let fallbackFrame = lastDisplayedFrame {
-                return VideoFrameImage(image: CIImage(cvPixelBuffer: fallbackFrame.buffer), isCanvasFrame: false)
+                return VideoFrameImage(
+                    image: SourceOrientation.applied(source.orientation,
+                                                     to: CIImage(cvPixelBuffer: fallbackFrame.buffer)),
+                    isCanvasFrame: false
+                )
             }
             return nil
         }
         lastDisplayedFrame = (compositionTime, buffer)
-        return VideoFrameImage(image: CIImage(cvPixelBuffer: buffer), isCanvasFrame: false)
+        return VideoFrameImage(
+            image: SourceOrientation.applied(source.orientation, to: CIImage(cvPixelBuffer: buffer)),
+            isCanvasFrame: false
+        )
     }
 
     public func seek(to time: CMTime) {
