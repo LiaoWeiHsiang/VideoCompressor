@@ -64,11 +64,20 @@ case "${1:-}" in
 esac
 
 echo "==> Running xcodebuild $ACTION for device $DEVICE_ID"
+# Unit tests only on device. The UI tests are simulator-only: a second test runner would
+# claim another of the three App IDs a free developer account allows per device, and the
+# flows they cover do not need real encoding hardware.
+ONLY_UNIT=()
+if [[ "$ACTION" == "test" ]]; then
+  ONLY_UNIT=(-only-testing:VideoCompressorTests)
+fi
+
 xcodebuild \
   -project VideoCompressor.xcodeproj \
   -scheme VideoCompressor \
   -destination "id=${DEVICE_ID}" \
   -allowProvisioningUpdates \
+  "${ONLY_UNIT[@]}" \
   "$ACTION"
 
 if [[ "${1:-}" == "--install" ]]; then

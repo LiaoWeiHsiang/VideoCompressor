@@ -52,6 +52,7 @@ struct ContentView: View {
                             Label(queue.isEmpty ? "選取影片" : "加入更多影片", systemImage: "video.badge.plus")
                         }
                     }
+                    .accessibilityIdentifier("selectVideos")
                     .disabled(isImportingSelection || isProcessingQueue)
                 }
 
@@ -113,6 +114,7 @@ struct ContentView: View {
                         } label: {
                             Text(startButtonTitle)
                         }
+                        .accessibilityIdentifier("startProcessing")
                         .disabled(isProcessingQueue || !hasPendingItems)
                     } footer: {
                         if hasEditedItems && !isProcessingQueue {
@@ -134,6 +136,7 @@ struct ContentView: View {
                                     Text("全部儲存到相簿")
                                 }
                             }
+                            .accessibilityIdentifier("saveAllToPhotos")
                             .disabled(isSavingAll)
 
                             if let saveAllConfirmation {
@@ -209,6 +212,13 @@ struct ContentView: View {
     private func restoreQueueIfNeeded() {
         guard !hasRestoredQueue else { return }
         hasRestoredQueue = true
+
+        // UI tests need a known starting point; the queue is otherwise carried over from
+        // whatever the previous test left behind.
+        if ProcessInfo.processInfo.arguments.contains("-uitest-reset-queue") {
+            QueueStore.save([])
+            return
+        }
         let restored = QueueStore.load()
         guard !restored.isEmpty else { return }
         let existing = Set(queue.map(\.id))
@@ -361,6 +371,7 @@ struct ContentView: View {
             currentProcessingID = itemID
 
             queue[index].status = .loading
+            var itemTimer = StageTimer("queueItem")
             let inputURL: URL
             do {
                 switch queue[index].source {
@@ -376,8 +387,10 @@ struct ContentView: View {
                 continue
             }
 
+            itemTimer.mark("fetchSource")
             queue[index].inputSizeText = FileSizeFormatter.string(for: inputURL)
             queue[index].inputResolution = await VideoMetadata.resolutionString(for: inputURL)
+            itemTimer.mark("inspect")
             queue[index].status = .compressing
 
             let timeRange: CMTimeRange? = queue[index].trimRange.map {
@@ -397,6 +410,7 @@ struct ContentView: View {
                         from: timeline,
                         renderSubtitles: true
                     )
+                    itemTimer.mark("buildComposition")
                     result = try await compressor.compress(
                         source: .composition(
                             built.composition,
@@ -417,6 +431,8 @@ struct ContentView: View {
                         dateMode: dateMode
                     )
                 }
+                itemTimer.mark("compress")
+                itemTimer.report(extra: ["edited": queue[index].editedTimeline != nil ? "yes" : "no"])
                 queue[index].outputURL = result
                 queue[index].outputSizeText = FileSizeFormatter.string(for: result)
                 queue[index].outputResolution = await VideoMetadata.resolutionString(for: result)

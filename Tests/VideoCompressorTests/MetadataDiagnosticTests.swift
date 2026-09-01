@@ -14,8 +14,14 @@ final class MetadataDiagnosticTests: XCTestCase {
     /// we produced ourselves, which would already have lost its metadata.
     @MainActor
     func testSurveyLibraryVideoMetadata() async throws {
-        let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
-        guard status == .authorized || status == .limited else { throw XCTSkip("no photo access") }
+        // Deliberately reads the current status instead of requesting it. A request puts up
+        // a system prompt, and in an automated run nothing dismisses it — the test then
+        // hangs indefinitely rather than failing, which is far worse than skipping.
+        // Grant access out of band: `xcrun simctl privacy <device> grant photos <bundle>`.
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard status == .authorized || status == .limited else {
+            throw XCTSkip("no photo access (status: \(status.rawValue)) — grant it out of band")
+        }
 
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
@@ -49,8 +55,14 @@ final class MetadataDiagnosticTests: XCTestCase {
     /// embedded metadata formats (this app's own outputs have none).
     @MainActor
     func testCameraOriginalLosesEmbeddedDateAfterCompression() async throws {
-        let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
-        guard status == .authorized || status == .limited else { throw XCTSkip("no photo access") }
+        // Deliberately reads the current status instead of requesting it. A request puts up
+        // a system prompt, and in an automated run nothing dismisses it — the test then
+        // hangs indefinitely rather than failing, which is far worse than skipping.
+        // Grant access out of band: `xcrun simctl privacy <device> grant photos <bundle>`.
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard status == .authorized || status == .limited else {
+            throw XCTSkip("no photo access (status: \(status.rawValue)) — grant it out of band")
+        }
 
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]

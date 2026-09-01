@@ -105,6 +105,22 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/VideoCompressor.app/VideoCompressor"
         BUNDLE_LOADER: "$(TEST_HOST)"
+  # UI tests run on the simulator only. They cover the screens the unit tests cannot
+  # reach — the queue, the editor hand-off, persistence across a relaunch — and keeping
+  # them off the device also keeps them from spending one of the three App IDs a free
+  # developer account allows per device.
+  VideoCompressorUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/VideoCompressorUITests
+    dependencies:
+      - target: VideoCompressor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.weihsiangliao.VideoCompressorUITests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: VideoCompressor
 schemes:
   VideoCompressor:
     build:
@@ -112,6 +128,8 @@ schemes:
         VideoCompressor: all
         VideoCompressorShare: all
         VideoCompressorTests: [test]
+        VideoCompressorUITests: [test]
     test:
       targets:
         - VideoCompressorTests
+        - VideoCompressorUITests

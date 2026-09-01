@@ -41,6 +41,7 @@ struct QueueRowView: View {
                     }
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("queueThumbnail")
             .disabled(item.status == .loading || item.status == .compressing)
 
             VStack(alignment: .leading, spacing: 4) {
@@ -59,6 +60,7 @@ struct QueueRowView: View {
                     Label("已設定剪輯", systemImage: "scissors")
                         .font(.caption2)
                         .foregroundStyle(.orange)
+                        .accessibilityIdentifier("editedBadge")
                 } else if let trimRange = item.trimRange {
                     Label(trimSummary(trimRange), systemImage: "scissors")
                         .font(.caption2)

@@ -93,7 +93,9 @@ final class VideoCompressor: ObservableObject {
         progress = 0
         defer { isCompressing = false }
 
+        var timer = StageTimer("compress")
         let resolved = try await Self.resolve(source)
+        timer.mark("resolve")
         let asset = resolved.asset
         let effectiveTimeRange = resolved.timeRange
         let trimmedDurationSeconds = CMTimeGetSeconds(effectiveTimeRange.duration)
@@ -113,6 +115,10 @@ final class VideoCompressor: ObservableObject {
         }
 
         let pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        // Only a plain track read can be scaled by the decoder; the composition outputs
+        // already render at the composition's own size.
+        let decoderWillScale = resolved.videoComposition == nil
+            && (targetSize.width != naturalSize.width || targetSize.height != naturalSize.height)
 
         // A plain track read cannot apply layer transforms or transitions, so an edited
         // timeline has to go through the composition outputs instead. Both subclass
@@ -130,10 +136,16 @@ final class VideoCompressor: ObservableObject {
             guard let videoTrack = resolved.videoTracks.first else {
                 throw CompressionError.assetLoadFailed
             }
-            let output = AVAssetReaderTrackOutput(
-                track: videoTrack,
-                outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: pixelFormat]
-            )
+            // Ask the decoder for the size we actually want. It scales in hardware as part
+            // of decoding, which costs far less than pulling every frame back through Core
+            // Image afterwards — and 4K footage, which is what this app was written for,
+            // needs scaling on every single frame.
+            var settings: [String: Any] = [kCVPixelBufferPixelFormatTypeKey as String: pixelFormat]
+            if decoderWillScale {
+                settings[kCVPixelBufferWidthKey as String] = Int(targetSize.width)
+                settings[kCVPixelBufferHeightKey as String] = Int(targetSize.height)
+            }
+            let output = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: settings)
             videoOutput = output
         }
         videoOutput.alwaysCopiesSampleData = false
@@ -231,6 +243,7 @@ final class VideoCompressor: ObservableObject {
             }
         }
 
+        timer.mark("setup")
         guard reader.startReading() else {
             throw CompressionError.readerCreationFailed(reader.error?.localizedDescription ?? "未知錯誤")
         }
@@ -239,7 +252,10 @@ final class VideoCompressor: ObservableObject {
         }
         writer.startSession(atSourceTime: effectiveTimeRange.start)
 
-        let needsScaling = targetSize.width != naturalSize.width || targetSize.height != naturalSize.height
+        // Frames arrive already scaled when the decoder did it, so the Core Image fallback
+        // below is only for the composition path.
+        let needsScaling = !decoderWillScale
+            && (targetSize.width != naturalSize.width || targetSize.height != naturalSize.height)
         let ciContext = CIContext()
 
         do {
@@ -269,6 +285,16 @@ final class VideoCompressor: ObservableObject {
             try? FileManager.default.removeItem(at: outputURL)
             throw error
         }
+
+        timer.mark("encode")
+        timer.report(extra: [
+            "seconds": String(format: "%.1f", trimmedDurationSeconds),
+            "in": "\(Int(naturalSize.width))x\(Int(naturalSize.height))",
+            "out": "\(Int(targetSize.width))x\(Int(targetSize.height))",
+            "scaled": needsScaling ? "yes" : "no",
+            "mb": String(format: "%.1f",
+                         Double((try? FileManager.default.attributesOfItem(atPath: outputURL.path)[.size] as? Int64) as? Int64 ?? 0) / 1_048_576)
+        ])
 
         progress = 1
         return outputURL
