@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var saveAllConfirmation: String?
     @State private var isPreparingEditor = false
     @State private var editorSession: EditorSession?
+    @State private var hasRestoredQueue = false
 
     @StateObject private var compressor = VideoCompressor()
 
@@ -176,7 +177,15 @@ struct ContentView: View {
                 importSharedVideo(from: url)
             }
             .onAppear {
+                restoreQueueIfNeeded()
                 checkInboxForPendingVideo()
+            }
+            // Persist on every queue change rather than only on background: iOS can
+            // terminate a suspended app without warning, and the whole point of saving an
+            // edit instead of rendering it is that it survives until the user is ready.
+            .onChange(of: queue) { _, updated in
+                guard !isProcessingQueue else { return }
+                QueueStore.save(updated)
             }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
@@ -191,6 +200,19 @@ struct ContentView: View {
 
     private func removeItems(at offsets: IndexSet) {
         queue.remove(atOffsets: offsets)
+    }
+
+    /// Restores the pending queue saved by a previous launch.
+    ///
+    /// Guarded so returning from the share sheet or the editor — both of which re-run
+    /// `onAppear` — cannot duplicate what is already on screen.
+    private func restoreQueueIfNeeded() {
+        guard !hasRestoredQueue else { return }
+        hasRestoredQueue = true
+        let restored = QueueStore.load()
+        guard !restored.isEmpty else { return }
+        let existing = Set(queue.map(\.id))
+        queue.append(contentsOf: restored.filter { !existing.contains($0.id) })
     }
 
     private func addToQueue(assets: [PHAsset]) {

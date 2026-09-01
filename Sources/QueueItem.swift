@@ -3,12 +3,12 @@ import CoreLocation
 import Foundation
 import TimelineKitCore
 
-enum VideoSource {
+enum VideoSource: Equatable {
     case asset(PHAsset)
     case file(VideoFile)
 }
 
-struct QueueItem: Identifiable {
+struct QueueItem: Identifiable, Equatable {
     enum Status: Equatable {
         case pending
         case loading
