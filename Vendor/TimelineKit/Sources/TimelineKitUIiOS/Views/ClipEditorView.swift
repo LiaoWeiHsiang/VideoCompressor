@@ -116,7 +116,10 @@ public struct ClipEditorView: View {
         )) {
             if let ctx = transitionEditContext {
                 TransitionEditSheet(context: ctx, store: store)
-                    .presentationDetents([.height(310)])
+                    // LOCAL PATCH (VENDORED.md #16): 310 was sized for the grid and the
+                    // duration slider alone. The join preview needs its own room, or the
+                    // grid and slider are squeezed on top of each other.
+                    .presentationDetents([.height(452)])
                     .presentationDragIndicator(.hidden)
             }
         }
