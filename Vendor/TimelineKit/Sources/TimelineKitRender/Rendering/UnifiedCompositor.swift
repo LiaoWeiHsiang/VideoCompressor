@@ -58,6 +58,45 @@ final class UnifiedCompositorInstruction: NSObject, AVVideoCompositionInstructio
     let fgOpacityEnd:   Float
     let easing:         EditorTransition.Easing
 
+    /// LOCAL PATCH (see VENDORED.md #17). Which effect was chosen.
+    ///
+    /// The instruction previously carried only an opacity ramp, and every blend went
+    /// through `CIDissolveTransition` — so the whole preset grid rendered as one
+    /// cross-fade, in the preview and in the exported file alike.
+    var transitionStyle: TransitionStyle = .crossFade
+
+    enum TransitionStyle: Equatable {
+        case crossFade
+        case fadeThroughBlack
+        /// Incoming clip slides in from this edge, outgoing stays put.
+        case slide(dx: CGFloat, dy: CGFloat)
+        /// Both clips move together, as if shoved along.
+        case push(dx: CGFloat, dy: CGFloat)
+        case zoomIn
+        case blurFade
+        /// Hard edge sweeping across.
+        case wipe(dx: CGFloat, dy: CGFloat)
+
+        /// Maps a preset id, falling back to a cross-fade for anything unrecognised —
+        /// better a plain dissolve than nothing at the join.
+        static func from(presetID: String?) -> TransitionStyle {
+            switch presetID {
+            case "fadeThroughBlack": return .fadeThroughBlack
+            case "slideLeft":        return .slide(dx: -1, dy: 0)
+            case "slideRight":       return .slide(dx: 1, dy: 0)
+            case "slideUp":          return .slide(dx: 0, dy: 1)
+            case "slideDown":        return .slide(dx: 0, dy: -1)
+            case "pushLeft":         return .push(dx: -1, dy: 0)
+            case "pushRight":        return .push(dx: 1, dy: 0)
+            case "zoomIn":           return .zoomIn
+            case "blurFade":         return .blurFade
+            case "wipeLeft":         return .wipe(dx: -1, dy: 0)
+            case "wipeRight":        return .wipe(dx: 1, dy: 0)
+            default:                 return .crossFade
+            }
+        }
+    }
+
     /// V5.1 BUG 1: 主视频轨尾端黑屏指令。true 时 UnifiedCompositor 跳过取帧、
     /// 直接渲染纯黑画面，让超出主视频轨结束点的音频继续播放但画面归零。
     let isBlackOut: Bool
@@ -310,18 +349,22 @@ print("[UC] t=\(t) imageLayers=\(instr.imageLayers.map { "z=\($0.zPosition) rang
                 if !instr.backgroundAdjustment.isIdentity {
                     bgImg = applyAdjustments(instr.backgroundAdjustment, to: bgImg)
                 }
-                sourceImage = fgImg.applyingFilter("CIDissolveTransition", parameters: [
-                    kCIInputTargetImageKey: bgImg,
-                    kCIInputTimeKey:        1.0 - fgOpacity
-                ])
+                // LOCAL PATCH (VENDORED.md #17): render the effect that was chosen.
+                sourceImage = Self.blend(
+                    outgoing: fgImg, incoming: bgImg,
+                    progress: 1.0 - CGFloat(fgOpacity),
+                    style: instr.transitionStyle,
+                    canvas: canvasRect
+                )
             } else if let bgCIImg = evalTransSpec(instr.transitionBgImageSpec) {
-                // Case 2 – video → image transition blend.
-                // Note: no fgOpacity guard — CIDissolveTransition handles all values:
-                //   time=0 (fgOpacity=1) → fully shows fgImg; time=1 → fully shows bgCIImg.
-                sourceImage = fgImg.applyingFilter("CIDissolveTransition", parameters: [
-                    kCIInputTargetImageKey: bgCIImg,
-                    kCIInputTimeKey:        1.0 - fgOpacity
-                ])
+                // Case 2 – video → image transition blend. Same styles apply: a still on
+                // the timeline should slide or wipe like any other clip.
+                sourceImage = Self.blend(
+                    outgoing: fgImg, incoming: bgCIImg,
+                    progress: 1.0 - CGFloat(fgOpacity),
+                    style: instr.transitionStyle,
+                    canvas: canvasRect
+                )
             } else {
                 // Steady-state video frame (no active transition blend).
                 sourceImage = fgImg
@@ -573,5 +616,118 @@ print("[UC] t=\(t) imageLayers=\(instr.imageLayers.map { "z=\($0.zPosition) rang
 
     private enum Err: Error {
         case badInstruction, missingFrame, noOutputBuffer
+    }
+}
+
+// MARK: - Transition styles
+
+/// LOCAL PATCH (see VENDORED.md #17). Renders the chosen transition.
+///
+/// Every effect in the preset grid previously went through `CIDissolveTransition`, so the
+/// grid offered a dozen names for one cross-fade — in the preview and in the exported file
+/// alike. Each style is built from Core Image primitives so it costs about the same as the
+/// dissolve it replaces.
+extension UnifiedCompositor {
+
+    static func blend(
+        outgoing: CIImage,
+        incoming: CIImage,
+        /// 0 at the start of the transition, 1 at the end.
+        progress: CGFloat,
+        style: UnifiedCompositorInstruction.TransitionStyle,
+        canvas: CGRect
+    ) -> CIImage {
+        let t = min(max(progress, 0), 1)
+
+        switch style {
+        case .crossFade:
+            return dissolve(outgoing, incoming, t)
+
+        case .fadeThroughBlack:
+            // Out to black over the first half, in from black over the second, so the two
+            // clips never overlap — the point of choosing this over a cross-fade.
+            let black = CIImage(color: .black).cropped(to: canvas)
+            return t < 0.5
+                ? dissolve(outgoing, black, t * 2)
+                : dissolve(black, incoming, (t - 0.5) * 2)
+
+        case .slide(let dx, let dy):
+            // Incoming travels in from off-canvas; outgoing holds still underneath.
+            let offset = CGAffineTransform(
+                translationX: dx * canvas.width * (1 - t),
+                y: dy * canvas.height * (1 - t)
+            )
+            return incoming.transformed(by: offset)
+                .composited(over: outgoing)
+                .cropped(to: canvas)
+
+        case .push(let dx, let dy):
+            // Both move together, as if shoved along.
+            let outgoingShift = CGAffineTransform(
+                translationX: dx * canvas.width * t, y: dy * canvas.height * t
+            )
+            let incomingShift = CGAffineTransform(
+                translationX: dx * canvas.width * (1 - t),
+                y: dy * canvas.height * (1 - t)
+            )
+            return incoming.transformed(by: incomingShift)
+                .composited(over: outgoing.transformed(by: outgoingShift))
+                .cropped(to: canvas)
+
+        case .zoomIn:
+            // Incoming grows into place while fading up.
+            let scale = 0.7 + 0.3 * t
+            let centred = CGAffineTransform(translationX: canvas.midX, y: canvas.midY)
+            let transform = CGAffineTransform(translationX: -canvas.midX, y: -canvas.midY)
+                .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+                .concatenating(centred)
+            let scaled = incoming.transformed(by: transform).cropped(to: canvas)
+            return dissolve(outgoing, scaled, t)
+
+        case .blurFade:
+            // Both sides soften towards the middle of the transition, so the cut is hidden
+            // rather than merely faded.
+            let softness = (0.5 - abs(t - 0.5)) * 2      // 0 → 1 → 0
+            let radius = 18 * softness
+            let blurredOut = radius > 0.5
+                ? outgoing.clampedToExtent().applyingGaussianBlur(sigma: radius).cropped(to: canvas)
+                : outgoing
+            let blurredIn = radius > 0.5
+                ? incoming.clampedToExtent().applyingGaussianBlur(sigma: radius).cropped(to: canvas)
+                : incoming
+            return dissolve(blurredOut, blurredIn, t)
+
+        case .wipe(let dx, let dy):
+            // A hard edge sweeping across, done with a gradient mask narrow enough to read
+            // as an edge rather than a gradient.
+            let travel = dx != 0 ? canvas.width : canvas.height
+            let position = travel * t
+            let start = dx != 0
+                ? CIVector(x: dx < 0 ? canvas.width - position : position, y: canvas.midY)
+                : CIVector(x: canvas.midX, y: dy < 0 ? canvas.height - position : position)
+            let end = dx != 0
+                ? CIVector(x: (dx < 0 ? canvas.width - position : position) + (dx < 0 ? -2 : 2), y: canvas.midY)
+                : CIVector(x: canvas.midX, y: (dy < 0 ? canvas.height - position : position) + (dy < 0 ? -2 : 2))
+
+            let mask = CIFilter(name: "CILinearGradient", parameters: [
+                "inputPoint0": start,
+                "inputColor0": CIColor.white,
+                "inputPoint1": end,
+                "inputColor1": CIColor.black
+            ])?.outputImage?.cropped(to: canvas)
+
+            guard let mask else { return dissolve(outgoing, incoming, t) }
+            return incoming.applyingFilter("CIBlendWithMask", parameters: [
+                kCIInputBackgroundImageKey: outgoing,
+                kCIInputMaskImageKey: mask
+            ]).cropped(to: canvas)
+        }
+    }
+
+    private static func dissolve(_ from: CIImage, _ to: CIImage, _ t: CGFloat) -> CIImage {
+        from.applyingFilter("CIDissolveTransition", parameters: [
+            kCIInputTargetImageKey: to,
+            kCIInputTimeKey: t
+        ])
     }
 }

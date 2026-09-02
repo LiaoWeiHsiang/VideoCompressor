@@ -696,6 +696,11 @@ public actor CompositionBuilder {
             // orientations follow the same even/odd rule as fgAdj / bgAdj above.
             transitionInstruction.foregroundOrientation = isEven ? orientations[i] : orientations[i + 1]
             transitionInstruction.backgroundOrientation = isEven ? orientations[i + 1] : orientations[i]
+            // LOCAL PATCH (VENDORED.md #17): carry the chosen effect through, or every
+            // preset renders as the same cross-fade.
+            transitionInstruction.transitionStyle = .from(
+                presetID: trans.presetID ?? TransitionPresetRegistry.presetID(for: trans.type)
+            )
             instructions.append(transitionInstruction)
         }
 

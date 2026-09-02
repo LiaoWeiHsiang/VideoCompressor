@@ -25,9 +25,12 @@ struct TransitionPreviewView: View {
     @State private var isBuilding = true
     @State private var buildFailed = false
 
-    /// Half-window either side of the join. A second is long enough to read a dissolve and
-    /// short enough to loop without becoming a distraction.
-    private static let halfWindow = 0.5
+    /// Half-window either side of the join.
+    ///
+    /// A second total was too brief to read what an effect does — especially a wipe or a
+    /// push, where most of the motion is at the edges. Each side contributes up to this
+    /// much, and a clip shorter than that simply contributes what it has.
+    private static let halfWindow = 2.5
 
     var body: some View {
         ZStack {

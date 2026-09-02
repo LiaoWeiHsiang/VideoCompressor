@@ -232,6 +232,20 @@ the package. Using it therefore means accepting its export path, which we must c
     export took different paths and disagreed; a preview that looks right but is not what
     gets written is worse than none, because it will be believed.
 
+17. `Sources/TimelineKitRender/Rendering/UnifiedCompositor.swift` — transitions render the
+    effect that was chosen.
+
+    `UnifiedCompositorInstruction` carried only an opacity ramp and every blend went through
+    `CIDissolveTransition`, so the whole preset grid — slide, push, zoom, blur, wipe, fade
+    through black — produced one cross-fade, in the preview and in the exported file alike.
+    A dozen names for a single effect.
+
+    The instruction now carries a `TransitionStyle`, populated by `CompositionBuilder` from
+    the transition's preset, and `blend(outgoing:incoming:progress:style:canvas:)` builds
+    each from Core Image primitives. `TransitionStyleTests` renders the midpoint of each and
+    compares colour fingerprints, so a regression to one shared dissolve fails rather than
+    quietly returning.
+
 ## Gotchas found while integrating (not patches — call sites must handle these)
 
 - **Canvas presets are all 720-based** (`EditorCanvas.Preset` → 1280×720 etc.), so
