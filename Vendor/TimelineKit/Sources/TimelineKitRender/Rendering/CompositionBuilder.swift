@@ -94,7 +94,14 @@ public actor CompositionBuilder {
             )
         }
         let actualFPS = fps ?? Double(timeline.canvas.fps > 0 ? timeline.canvas.fps : 30)
-        let totalDuration = CMTime(seconds: max(timeline.duration, 0.1), preferredTimescale: 600)
+        // LOCAL PATCH (VENDORED.md #8, revised): transitions overlap the clips, so the
+        // finished piece is shorter than the sum of its segments. Using the uncompressed
+        // length here left a gap the gap-filler covered with a stray instruction, and
+        // stretched the audio anchor past the end of the picture.
+        let totalDuration = CMTime(
+            seconds: max(Self.compressedDuration(of: timeline), 0.1),
+            preferredTimescale: 600
+        )
 
         // V5：导出分辨率可能与 canvas 不同，字幕/文字的所有 point 值需等比缩放。
         // 剪映等竞品文字大小不受导出分辨率影响——本质是用「参考画布」定义字体，
@@ -141,6 +148,10 @@ public actor CompositionBuilder {
             || !overlaySegs.isEmpty
             || timelineHasImages
 
+        // Only the unified path shifts anything: transitions force that path, and the
+        // single-pass path never has one.
+        var mainSegmentStarts: [UUID: Double] = [:]
+
         let videoComposition = AVMutableVideoComposition()
         videoComposition.renderSize    = actualRenderSize
         videoComposition.frameDuration = CMTime(seconds: 1.0 / actualFPS, preferredTimescale: 600)
@@ -156,7 +167,7 @@ public actor CompositionBuilder {
         }()
 
         if hasEffects {
-            let unified = try await buildVideoTrackUnified(
+            let (unified, unifiedStarts) = try await buildVideoTrackUnified(
                 timeline:          timeline,
                 composition:       composition,
                 renderSize:        actualRenderSize,
@@ -165,6 +176,7 @@ public actor CompositionBuilder {
                 fps:               actualFPS,
                 skipImageOverlays: skipImageOverlays
             )
+            mainSegmentStarts = unifiedStarts
 
             // Unified compositor path: animationTool is forbidden (mutual exclusion).
             // Pre-render each subtitle/text segment to a CIImage on MainActor, then
@@ -214,10 +226,15 @@ public actor CompositionBuilder {
         }
 
         // ── 3. Audio ─────────────────────────────────────────────────────────
+        // LOCAL PATCH (VENDORED.md #8, revised): a transition pulls following clips earlier,
+        // so their audio has to move by the same amount. Laying audio down at raw timeline
+        // positions while the picture had shifted is exactly the desynchronisation that
+        // made timeline compression unsafe before.
         let (audioMix, audioTrackMap) = try await buildAudio(
             timeline:      timeline,
             composition:   composition,
-            totalDuration: totalDuration
+            totalDuration: totalDuration,
+            segmentStarts: mainSegmentStarts
         )
 
         return CompositionResult(
@@ -277,7 +294,7 @@ public actor CompositionBuilder {
         mainVideoEnd:      CMTime,
         fps:               Double,
         skipImageOverlays: Bool = false
-    ) async throws -> [UnifiedCompositorInstruction] {
+    ) async throws -> (instructions: [UnifiedCompositorInstruction], segmentStarts: [UUID: Double]) {
 
         let segments    = timeline.mainTrack?.segments ?? []
         let sortedSegs  = segments.sorted { $0.targetRange.start < $1.targetRange.start }
@@ -309,14 +326,31 @@ public actor CompositionBuilder {
             trackB   = tb
         }
 
-        // ── Compute insertion times (V7: no timeline compression) ────────────
-        // Transitions are render-only visual blends; composition time == visual
-        // timeline time.  Each segment starts immediately after the previous one.
+        // ── Compute insertion times ──────────────────────────────────────────
+        // LOCAL PATCH (see VENDORED.md #8, revised). Upstream laid segments end to end and
+        // treated transitions as render-only, which meant the two clips never coexisted and
+        // a cross-fade had nothing to blend — untrimmed clips, the common case, produced a
+        // hard cut no matter which effect was chosen.
+        //
+        // The overlap now comes from pulling each following segment back by the transition
+        // duration, which is how editors normally do it. `segmentStarts` carries these
+        // times out to `buildAudio` so a clip's own audio moves with its picture; laying
+        // audio down at raw timeline positions is what made this approach unsafe before.
+        func transitionDuration(_ index: Int) -> Double {
+            guard index + 1 < sortedSegs.count,
+                  let transition = outgoing[sortedSegs[index].id],
+                  transition.trailingSegmentID == sortedSegs[index + 1].id
+            else { return 0 }
+            return min(transition.duration,
+                       min(sortedSegs[index].targetRange.duration,
+                           sortedSegs[index + 1].targetRange.duration) * 0.5)
+        }
+
         var insertionTimes = [Double](repeating: 0, count: sortedSegs.count)
         var cursor = 0.0
         for (i, seg) in sortedSegs.enumerated() {
             insertionTimes[i] = cursor
-            cursor += seg.targetRange.duration
+            cursor += seg.targetRange.duration - transitionDuration(i)
         }
 
 #if DEBUG
@@ -435,48 +469,22 @@ public actor CompositionBuilder {
             spareHead[i] = max(0, srcStart)
             spareTail[i] = max(0, assetTrackDur - (srcStart + clampedSrcDur))
 
-            var headExtension = 0.0
+            // The overlap is produced by the compressed insertion times above, so each
+            // segment is inserted whole, at its own start. No borrowing from outside the
+            // in/out points is needed any more — which is what made this depend on the
+            // clips having been trimmed first.
             if i > 0,
                let transition = incoming[seg.id],
-               transition.leadingSegmentID == sortedSegs[i - 1].id,
-               let previous = srcInfo[i - 1] {
-                let previousSeg = sortedSegs[i - 1]
-                let requested = min(transition.duration,
-                                    min(previousSeg.targetRange.duration,
-                                        seg.targetRange.duration) * 0.5)
-                // Each side supplies half the window, so the shorter spare side caps it.
-                let usable = max(0, min(requested, 2 * spareTail[i - 1], 2 * spareHead[i]))
-
-                if usable > 0.001 {
-                    effectiveTransitionDuration[transition.id] = usable
-                    headExtension = usable / 2
-
-                    // Extend the previous segment forward into its spare tail. It sits on
-                    // the other track, whose media currently ends exactly here, so this
-                    // appends and cannot shift anything already inserted.
-                    let previousTrack = (((i - 1) % 2 == 0) || trackBID == nil)
-                        ? compTracks[0]! : compTracks[1]!
-                    let tailSource = CMTimeRange(
-                        start:    CMTime(seconds: previous.start + previous.duration, preferredTimescale: 600),
-                        duration: CMTime(seconds: headExtension, preferredTimescale: 600)
-                    )
-                    try? previousTrack.insertTimeRange(
-                        tailSource,
-                        of: previous.track,
-                        at: CMTime(seconds: insertionTimes[i - 1] + previousSeg.targetRange.duration,
-                                   preferredTimescale: 600)
-                    )
-                }
+               transition.leadingSegmentID == sortedSegs[i - 1].id {
+                let overlap = transitionDuration(i - 1)
+                if overlap > 0.001 { effectiveTransitionDuration[transition.id] = overlap }
             }
 
-            // Reaching back by `headExtension` keeps the source-to-composition mapping
-            // unchanged — this segment still lands on its own timeline slot, it merely
-            // starts supplying frames early enough to be dissolved into.
             let sr = CMTimeRange(
-                start:    CMTime(seconds: srcStart - headExtension,       preferredTimescale: 600),
-                duration: CMTime(seconds: clampedSrcDur + headExtension,  preferredTimescale: 600)
+                start:    CMTime(seconds: srcStart,       preferredTimescale: 600),
+                duration: CMTime(seconds: clampedSrcDur,  preferredTimescale: 600)
             )
-            let insertAt = CMTime(seconds: insertionTimes[i] - headExtension, preferredTimescale: 600)
+            let insertAt = CMTime(seconds: insertionTimes[i], preferredTimescale: 600)
             try? track.insertTimeRange(sr, of: assetTrack, at: insertAt)
 
             // LOCAL PATCH (VENDORED.md #13): compress or stretch what was just inserted so
@@ -573,10 +581,13 @@ public actor CompositionBuilder {
             // and in ascending order, and rejected the whole composition
             // (AVErrorInvalidVideoComposition) — every export of a timeline containing a
             // transition failed. Give the transition window back to the transition.
+            // With the timeline compressed, the overlap sits between where this segment
+            // starts and where the previous one ends, so the body is what is left either
+            // side of those windows.
             let incomingWindow = incoming[seg.id].flatMap { effectiveTransitionDuration[$0.id] } ?? 0
             let outgoingWindow = outgoing[seg.id].flatMap { effectiveTransitionDuration[$0.id] } ?? 0
-            let bodyStart = compStart + incomingWindow / 2
-            let bodyEnd   = compStart + seg.targetRange.duration - outgoingWindow / 2
+            let bodyStart = compStart + incomingWindow
+            let bodyEnd   = compStart + seg.targetRange.duration - outgoingWindow
 
             if bodyStart < bodyEnd {
                 // V6: Attach image layer payload when this segment is an image.
@@ -618,9 +629,9 @@ public actor CompositionBuilder {
                   let clampedDur = effectiveTransitionDuration[trans.id]
             else { continue }
             let nextSeg     = sortedSegs[i + 1]
-            let boundary    = insertionTimes[i + 1]           // segment boundary
-            let transStart  = boundary - clampedDur / 2
-            let transEnd    = boundary + clampedDur / 2
+            // The overlap itself: from where the next clip begins to where this one ends.
+            let transStart  = insertionTimes[i + 1]
+            let transEnd    = transStart + clampedDur
 
             // Foreground = trackA throughout; opacity direction depends on which track is outgoing
             // Even i → A is outgoing (fades 1→0) ; Odd i → A is incoming (fades 0→1)
@@ -688,12 +699,18 @@ public actor CompositionBuilder {
             instructions.append(transitionInstruction)
         }
 
-        return coverGapsUnified(
-            instructions,
-            trackID:            trackAID,
-            totalDuration:      totalDuration,
-            mainVideoEnd:       mainVideoEnd,
-            overlayImageSpecs:  skipImageOverlays ? [] : overlayImageSpecs
+        var segmentStarts: [UUID: Double] = [:]
+        for (i, seg) in sortedSegs.enumerated() { segmentStarts[seg.id] = insertionTimes[i] }
+
+        return (
+            coverGapsUnified(
+                instructions,
+                trackID:            trackAID,
+                totalDuration:      totalDuration,
+                mainVideoEnd:       mainVideoEnd,
+                overlayImageSpecs:  skipImageOverlays ? [] : overlayImageSpecs
+            ),
+            segmentStarts
         )
     }
 
@@ -1019,6 +1036,40 @@ public actor CompositionBuilder {
         min(max(seg.speed, 0.25), 4.0)
     }
 
+    /// Timeline length once transitions have pulled the clips together.
+    ///
+    /// Mirrors the clamping the unified builder applies, so the two cannot disagree about
+    /// where the piece ends — which is what produced a trailing filler instruction and
+    /// audio running past the picture.
+    static func compressedDuration(of timeline: EditorTimeline) -> Double {
+        let segments = (timeline.mainTrack?.segments ?? [])
+            .sorted { $0.targetRange.start < $1.targetRange.start }
+        guard !segments.isEmpty else { return timeline.duration }
+
+        let mainIDs = Set(segments.map(\.id))
+        let outgoing = Dictionary(
+            timeline.transitions
+                .filter { mainIDs.contains($0.leadingSegmentID) && mainIDs.contains($0.trailingSegmentID) }
+                .map { ($0.leadingSegmentID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        var total = 0.0
+        for (index, segment) in segments.enumerated() {
+            total += segment.targetRange.duration
+            guard index + 1 < segments.count,
+                  let transition = outgoing[segment.id],
+                  transition.trailingSegmentID == segments[index + 1].id
+            else { continue }
+            total -= min(transition.duration,
+                         min(segment.targetRange.duration,
+                             segments[index + 1].targetRange.duration) * 0.5)
+        }
+        // Overlay and audio tracks can outlast the main track; never cut them short.
+        return max(total, timeline.tracks.filter { !$0.isMainTrack }
+            .flatMap(\.segments).map(\.targetRange.end).max() ?? 0)
+    }
+
     private func srcRange(for seg: EditorSegment) -> (start: Double, duration: Double) {
         if case .image = seg.content {
             return (0, seg.targetRange.duration)
@@ -1086,7 +1137,10 @@ public actor CompositionBuilder {
     private func buildAudio(
         timeline:      EditorTimeline,
         composition:   AVMutableComposition,
-        totalDuration: CMTime
+        totalDuration: CMTime,
+        /// Where each main-track segment actually starts once transitions have pulled the
+        /// timeline together. Empty when nothing shifted.
+        segmentStarts: [UUID: Double] = [:]
     ) async throws -> (AVMutableAudioMix, [UUID: CMPersistentTrackID]) {
 
         let audioMix   = AVMutableAudioMix()
@@ -1192,7 +1246,20 @@ public actor CompositionBuilder {
             ) else { continue }
             trackMap[track.id] = compAudioTrack.trackID
 
-            for seg in audioSegs {
+            // LOCAL PATCH (VENDORED.md #8, revised). A transition makes consecutive clips
+            // overlap in time, and `insertTimeRange(_:of:at:)` *inserts* — it pushes what
+            // is already there later rather than overlaying it. Putting overlapping audio
+            // on one track therefore lengthened the piece by the transition instead of
+            // shortening it, and pushed the first clip's tail past the end of the picture.
+            //
+            // Alternating tracks mirrors what the video builder does with trackA/trackB,
+            // so overlapping clips never contend for the same track.
+            var alternateAudioTrack: AVMutableCompositionTrack?
+            let ordered = audioSegs.sorted { $0.targetRange.start < $1.targetRange.start }
+            var previousEnd = -Double.greatestFiniteMagnitude
+            var useAlternate = false
+
+            for seg in ordered {
                 guard let asset = timeline.materials[seg.materialID],
                       let url   = asset.bestURL else { continue }
 
@@ -1209,11 +1276,28 @@ public actor CompositionBuilder {
                     start:    CMTime(seconds: srcStart,    preferredTimescale: 600),
                     duration: CMTime(seconds: srcDuration, preferredTimescale: 600)
                 )
-                let targetAt = CMTime(seconds: seg.targetRange.start, preferredTimescale: 600)
-                try? compAudioTrack.insertTimeRange(srcRange, of: srcTrack, at: targetAt)
+                let startSeconds = segmentStarts[seg.id] ?? seg.targetRange.start
+                let targetAt = CMTime(seconds: startSeconds, preferredTimescale: 600)
+
+                // Overlaps the previous clip? Then it belongs on the other track.
+                if startSeconds < previousEnd - 0.001 {
+                    useAlternate = true
+                    if alternateAudioTrack == nil {
+                        alternateAudioTrack = composition.addMutableTrack(
+                            withMediaType: .audio,
+                            preferredTrackID: kCMPersistentTrackID_Invalid
+                        )
+                    }
+                } else {
+                    useAlternate = false
+                }
+                let destination = (useAlternate ? alternateAudioTrack : compAudioTrack) ?? compAudioTrack
+                previousEnd = startSeconds + seg.targetRange.duration
+
+                try? destination.insertTimeRange(srcRange, of: srcTrack, at: targetAt)
                 if abs(speed - 1.0) > 1e-3 {
                     let inserted = CMTimeRange(start: targetAt, duration: srcRange.duration)
-                    compAudioTrack.scaleTimeRange(
+                    destination.scaleTimeRange(
                         inserted,
                         toDuration: CMTime(seconds: seg.targetRange.duration, preferredTimescale: 600)
                     )

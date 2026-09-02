@@ -111,13 +111,27 @@ the package. Using it therefore means accepting its export path, which we must c
    this path "best-effort only" and say it "shows a hard cut" — the blending lives in the
    preview runtime, not in what gets exported.
 
-   Fixed by widening each side of the boundary into footage outside its in/out points
-   (`spareHead` / `spareTail`), which is the only source of overlap that does not shift the
-   timeline — `buildAudio` inserts main-track audio at raw `targetRange.start`, so
-   compressing the video timeline (the usual way to do transitions) would desynchronise
-   audio. Consequence worth knowing: **a transition needs trimmed clips.** Two untrimmed
-   clips have no spare footage, so the window collapses to zero and the join degrades to a
-   hard cut rather than dissolving against black.
+   Fixed by compressing the timeline: each following clip is pulled back by the transition
+   duration so the two genuinely overlap, which is how editors normally do it.
+
+   An earlier attempt borrowed footage from outside the in/out points instead, to avoid
+   touching audio timing. That worked only for trimmed clips — two untrimmed ones have no
+   spare, so the window collapsed and every effect produced a hard cut. That is the common
+   case, so the feature was effectively unavailable; the limitation was written down here
+   as if it were acceptable, which it was not.
+
+   Compressing the timeline needs three things to move together, and missing any one is
+   silent:
+   - `buildAudio` places main-track audio at `segmentStarts` (returned by
+     `buildVideoTrackUnified`) rather than raw `targetRange.start`, or sound drifts from
+     picture by the transition's length.
+   - `compressedDuration(of:)` mirrors the same clamping for `totalDuration`; otherwise the
+     gap-filler appends a stray instruction and the composition fails validation.
+   - Overlapping audio alternates between two composition tracks.
+     `insertTimeRange(_:of:at:)` **inserts** — it pushes existing media later rather than
+     overlaying it — so overlapping clips on one track lengthen the piece by the transition
+     instead of shortening it. The video builder already alternates trackA/trackB for this
+     reason.
 
 9. Source rotation is applied wherever frames are rendered by hand. New file
    `Sources/TimelineKitRender/Rendering/SourceOrientation.swift`, used from

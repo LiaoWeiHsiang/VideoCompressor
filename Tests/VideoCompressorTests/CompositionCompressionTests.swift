@@ -259,15 +259,21 @@ final class CompositionCompressionTests: XCTestCase {
 
         let seconds = CMTimeGetSeconds(try await AVURLAsset(url: outputURL).load(.duration))
         print("TRANSITION_OUTPUT_SECONDS: \(seconds)")
-        // Timeline positions are never shifted (audio is laid down at raw timeline times),
-        // so the join stays where it was: 4 + 3.
-        XCTAssertEqual(seconds, 7.0, accuracy: 0.6)
+        // The clips now overlap for the length of the transition, so 4 + 3 with a 0.5s
+        // cross-fade comes out at 6.5.
+        XCTAssertEqual(seconds, 6.5, accuracy: 0.6)
         XCTAssertEqual(compressor.progress, 1.0, "transition path never completed")
+
+        // The point of the change: untrimmed clips — the ordinary case — must produce a
+        // real cross-fade rather than the hard cut they used to fall back to.
+        XCTAssertEqual(built.videoComposition.instructions.count, 3,
+                       "expected body / cross-fade / body from two untrimmed clips")
+        XCTAssertEqual(built.videoComposition.instructions[1].requiredSourceTrackIDs?.count, 2,
+                       "the middle instruction must draw from both clips at once")
     }
 
-    /// With footage to spare outside the in/out points, the transition must actually
-    /// overlap the two clips — otherwise it would dissolve a clip against black, which
-    /// looks worse than the hard cut it is supposed to replace.
+    /// Trimmed clips must behave the same as untrimmed ones. This used to be the only
+    /// case that produced a cross-fade at all.
     @MainActor
     func testTrimmedClipsGiveTheTransitionRealOverlap() async throws {
         let a = try await AudioVideoFactory.makeVideoWithAudio(seconds: 4, toneHz: 440)
@@ -437,5 +443,49 @@ final class CompositionValidationReporter: NSObject, AVVideoCompositionValidatio
     ) -> Bool {
         problems.append("invalid track id \(layerInstruction.trackID) in instruction at \(CMTimeGetSeconds(instruction.timeRange.start))")
         return true
+    }
+}
+
+// MARK: - Audio must follow the compressed timeline
+
+extension CompositionCompressionTests {
+
+    /// A transition pulls the following clip earlier. Its audio has to move by the same
+    /// amount, or sound drifts from picture by the transition's length — which is exactly
+    /// why the timeline was not compressed before, and the reason to check it now.
+    @MainActor
+    func testAudioStaysAlignedAcrossATransition() async throws {
+        let a = try await AudioVideoFactory.makeVideoWithAudio(seconds: 4, toneHz: 440)
+        let b = try await AudioVideoFactory.makeVideoWithAudio(seconds: 3, toneHz: 880)
+        defer { [a, b].forEach { try? FileManager.default.removeItem(at: $0) } }
+
+        let store = try await makeTimeline(clips: [a, b])
+        let segments = try XCTUnwrap(store.timeline.mainTrack?.segments)
+            .sorted { $0.targetRange.start < $1.targetRange.start }
+        XCTAssertNotNil(store.addTransition(between: segments[0].id, and: segments[1].id,
+                                            type: .fade, duration: 0.5))
+
+        let built = try await CompositionBuilder().build(from: store.timeline, renderSubtitles: true)
+
+        let videoTracks = try await built.composition.loadTracks(withMediaType: .video)
+        let audioTracks = try await built.composition.loadTracks(withMediaType: .audio)
+        XCTAssertFalse(audioTracks.isEmpty, "the clips' own audio was dropped")
+
+        // Where the media actually ends on each side. If audio were still laid down at
+        // uncompressed positions it would run half a second past the picture.
+        var videoEnd = 0.0
+        for track in videoTracks {
+            let range = try await track.load(.timeRange)
+            videoEnd = max(videoEnd, CMTimeGetSeconds(range.end))
+        }
+        var audioEnd = 0.0
+        for track in audioTracks {
+            let range = try await track.load(.timeRange)
+            audioEnd = max(audioEnd, CMTimeGetSeconds(range.end))
+        }
+
+        print("TRANSITION_SYNC: video ends \(videoEnd)s, audio ends \(audioEnd)s")
+        XCTAssertEqual(audioEnd, videoEnd, accuracy: 0.2,
+                       "audio and picture ended at different times — the shift was applied to only one")
     }
 }
