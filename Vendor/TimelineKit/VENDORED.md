@@ -246,6 +246,12 @@ the package. Using it therefore means accepting its export path, which we must c
     compares colour fingerprints, so a regression to one shared dissolve fails rather than
     quietly returning.
 
+18. `Sources/TimelineKitUIiOS/Views/SegmentReplacePanel.swift` — removed the per-segment
+    原音 toggle. Sound is decided once for the whole export by the queue's 保留聲音 switch,
+    and two controls for the same thing in different screens is how a clip ends up silent
+    for a reason nobody can find. `setVideoMuted` itself is untouched, so a saved timeline
+    containing a muted segment still renders that way.
+
 ## Gotchas found while integrating (not patches — call sites must handle these)
 
 - **Canvas presets are all 720-based** (`EditorCanvas.Preset` → 1280×720 etc.), so

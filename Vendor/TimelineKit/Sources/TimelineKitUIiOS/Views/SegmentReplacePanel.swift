@@ -60,14 +60,11 @@ struct SegmentReplacePanel: View {
                     Task { await runDetachAudio() }
                 }
 
-                // v3 P3 (audio-feature-spec §11): toggle the segment's native audio.
-                // Icon flips on/off; tap immediately commits via setVideoMuted.
-                panelItem(
-                    isVideoAudioMuted ? "原音 關" : "原音 開",
-                    icon: isVideoAudioMuted ? "speaker.slash.fill" : "speaker.wave.2.fill"
-                ) {
-                    store.setVideoMuted(segmentID: segmentID, isMuted: !isVideoAudioMuted)
-                }
+                // LOCAL PATCH (see VENDORED.md #18). The per-segment 原音 toggle is gone:
+                // sound is decided once for the whole export by the queue's 保留聲音 switch,
+                // and two controls for the same thing in different places is how a clip
+                // ends up silent for a reason nobody can find. `setVideoMuted` is untouched,
+                // so a timeline saved with a muted segment still renders that way.
 
                 if isDetachingAudio {
                     HStack(spacing: 8) {
