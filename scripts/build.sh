@@ -14,8 +14,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# An explicitly-exported DEVICE_ID must beat the one in .env. `source` with `set -a`
+# overwrites whatever the caller exported, so deploy.sh could pick one phone, announce it,
+# and silently install on the other — the file was quietly winning.
+DEVICE_ID_FROM_CALLER="${DEVICE_ID:-}"
 if [[ -f .env ]]; then
   set -a; source .env; set +a
+fi
+if [[ -n "$DEVICE_ID_FROM_CALLER" ]]; then
+  DEVICE_ID="$DEVICE_ID_FROM_CALLER"
 fi
 
 if [[ -z "${DEVELOPMENT_TEAM:-}" ]]; then

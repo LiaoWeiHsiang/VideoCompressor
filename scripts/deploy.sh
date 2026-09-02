@@ -159,7 +159,15 @@ echo "$TARGET" > "$REMEMBERED"
 export DEVICE_ID="$TARGET"
 
 if [[ "$DO_BUILD" == "1" ]]; then
-  ./scripts/build.sh --install
+  # Check that build.sh really targeted the phone chosen here. It once did not — .env's
+  # DEVICE_ID overrode the exported one — and the only symptom was the app appearing on the
+  # other phone, while every line of output named the right one.
+  ./scripts/build.sh --install | tee /tmp/deploy-build.log
+  if ! grep -q "for device ${TARGET}" /tmp/deploy-build.log; then
+    echo "error: the build targeted a different device than ${TARGET_NAME:-$TARGET}." >&2
+    echo "       Check for a DEVICE_ID in .env overriding the choice." >&2
+    exit 1
+  fi
 else
   APP=$(find "$HOME/Library/Developer/Xcode/DerivedData" \
         -maxdepth 5 -path '*/Build/Products/Debug-iphoneos/VideoCompressor.app' \
