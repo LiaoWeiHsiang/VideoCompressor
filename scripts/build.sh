@@ -92,8 +92,13 @@ xcodebuild \
 if [[ "${1:-}" == "--install" ]]; then
   # -showBuildSettings covers every target in the scheme, so match on the product that is
   # actually an .app — picking the last FULL_PRODUCT_NAME lands on the share extension.
+  # `generic/platform=iOS`, not the real device: resolving a specific destination needs the
+  # phone to answer, so a Wi-Fi phone that blinked out here killed the script silently —
+  # stderr discarded, `set -e` and `pipefail` doing the rest, right after BUILD SUCCEEDED.
+  # The product path does not depend on which phone it is going to.
+  SETTINGS_ERR=$(mktemp)
   APP=$(xcodebuild -project VideoCompressor.xcodeproj -scheme VideoCompressor \
-        -destination "id=${DEVICE_ID}" -showBuildSettings 2>/dev/null \
+        -destination "generic/platform=iOS" -showBuildSettings 2>"$SETTINGS_ERR" \
         | awk -F' = ' '
             / BUILT_PRODUCTS_DIR /            { dir = $2 }
             / FULL_PRODUCT_NAME /             { if ($2 ~ /\.app$/) app = $2 }
@@ -101,10 +106,29 @@ if [[ "${1:-}" == "--install" ]]; then
 
   if [[ -z "$APP" ]]; then
     echo "error: could not locate the built .app" >&2
+    sed -n '1,5p' "$SETTINGS_ERR" >&2
+    rm -f "$SETTINGS_ERR"
     exit 1
   fi
+  rm -f "$SETTINGS_ERR"
 
   echo "==> Installing $APP"
-  xcrun devicectl device install app --device "$DEVICE_ID" "$APP"
-  xcrun devicectl device process launch --device "$DEVICE_ID" com.weihsiangliao.VideoCompressor
+  # Over Wi-Fi the tunnel drops often enough that a single attempt is not a fair test:
+  # "The device disconnected immediately after connecting" is transient and succeeds on a
+  # retry. Failing the whole run on the first blip would make an unattended job useless.
+  install_attempt=1
+  until xcrun devicectl device install app --device "$DEVICE_ID" "$APP"; do
+    if (( install_attempt >= 3 )); then
+      echo "error: install failed after $install_attempt attempts" >&2
+      exit 1
+    fi
+    echo "==> Install attempt $install_attempt failed; retrying"
+    install_attempt=$(( install_attempt + 1 ))
+    sleep $(( install_attempt * 5 ))
+  done
+  # The unattended daily job sets SKIP_LAUNCH: bringing an app to the foreground on someone's
+  # phone in the middle of the night is not a side effect an install should have.
+  if [[ "${SKIP_LAUNCH:-0}" != "1" ]]; then
+    xcrun devicectl device process launch --device "$DEVICE_ID" com.weihsiangliao.VideoCompressor
+  fi
 fi
