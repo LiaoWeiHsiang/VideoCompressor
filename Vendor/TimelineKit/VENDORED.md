@@ -201,6 +201,23 @@ the package. Using it therefore means accepting its export path, which we must c
     for 30s rendered 30s. Speed is accounted for (a 0.5x clip legitimately occupies twice
     its footage) and stills are exempt, having no footage to run out of.
 
+15. `Sources/TimelineKitUIiOS/Views/ClipEditorView.swift` — selecting a video or image no
+    longer forces the bottom toolbar to 剪輯.
+
+    It made every other tool unreachable in the obvious order: tap 變速, be told to select a
+    segment, tap the segment — and land back in 剪輯, so the tool still appears to be asking
+    for a selection. Text and audio keep the jump, where opening the editor for what was
+    tapped is the point.
+
+16. New `Sources/TimelineKitUIiOS/Views/TransitionPreviewView.swift`, shown in
+    `TransitionEditSheet` — a looping one-second preview of the join, half a second either
+    side.
+
+    It plays the real `CompositionBuilder` output, the same composition the encoder
+    consumes, rather than a mock-up. This project has twice shipped a bug where preview and
+    export took different paths and disagreed; a preview that looks right but is not what
+    gets written is worse than none, because it will be believed.
+
 ## Gotchas found while integrating (not patches — call sites must handle these)
 
 - **Canvas presets are all 720-based** (`EditorCanvas.Preset` → 1280×720 etc.), so

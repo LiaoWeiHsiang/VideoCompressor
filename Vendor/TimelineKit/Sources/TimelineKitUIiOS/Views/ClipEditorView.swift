@@ -197,10 +197,17 @@ public struct ClipEditorView: View {
             // this only updates the highlight on the bottom toolbar.
             guard let id = newID,
                   let seg = store.timeline.segment(id: id) else { return }
+            // LOCAL PATCH (see VENDORED.md #15). Selecting a video or image no longer
+            // forces the toolbar to 剪輯.
+            //
+            // It made every other tool unreachable in the obvious order: tap 變速, be told
+            // to select a segment, tap the segment — and land back in 剪輯, so the tool
+            // still appears to be asking for a selection. Text and audio keep the jump,
+            // where opening the editor for what was tapped *is* the point.
             switch seg.content {
             case .text, .subtitle:  activeToolCategory = .text
             case .audio:            activeToolCategory = .audio
-            case .video, .image:    activeToolCategory = .clip
+            case .video, .image:    break
             }
         }
         // v4 fix (空字幕/文本片段自动回收):

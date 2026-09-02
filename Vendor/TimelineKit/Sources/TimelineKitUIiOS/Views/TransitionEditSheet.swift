@@ -86,11 +86,19 @@ struct TransitionEditSheet: View {
 
     // MARK: - Body
 
+    /// Bumped whenever the preset or duration changes, to drive the preview's rebuild.
+    @State private var previewRevision = 0
+
     var body: some View {
         VStack(spacing: 0) {
             dragHandle
 
             header
+
+            // LOCAL PATCH (see VENDORED.md #16): show the join rather than making the user
+            // guess what a name does to these two particular clips.
+            TransitionPreviewView(store: store, context: context, revision: previewRevision)
+                .padding(.top, 8)
 
             if visibleTabs.count > 1 {
                 tabBar
@@ -198,6 +206,7 @@ struct TransitionEditSheet: View {
                         guard let existing = context.existingTransition
                               ?? currentTransition() else { return }
                         store.updateTransitionDuration(id: existing.id, duration: newVal)
+                        previewRevision += 1
                     }
             } else {
                 Text("0.2 s（最短）")
@@ -211,6 +220,7 @@ struct TransitionEditSheet: View {
 
     private func applyPreset(_ presetID: String) {
         selectedPresetID = presetID
+        defer { previewRevision += 1 }
         if presetID == Self.noneID {
             // Remove existing transition.
             if let t = context.existingTransition ?? currentTransition() {
