@@ -23,7 +23,10 @@ public enum EditorToolCategory: String, CaseIterable, Identifiable {
     /// Whether this category is shown in the toolbar. False = feature not yet shipped.
     var isEnabled: Bool {
         switch self {
-        case .clip, .audio, .text, .transition, .adjust, .animation, .speed: return true
+        // LOCAL PATCH (VENDORED.md #20): 動畫 is folded into 轉場 — both answer "how does
+        // this clip begin and end", and the split between them was not legible from the
+        // names alone.
+        case .clip, .audio, .text, .transition, .adjust, .speed: return true
         default: return false
         }
     }
@@ -155,10 +158,7 @@ struct EditorSecondaryToolPanel: View {
         // opened a panel containing a picture of the category. The real editors are
         // reachable, just not from here — say where instead of showing a dead control.
         case .transition:
-            let segmentCount = store.timeline.mainTrack?.segments.count ?? 0
-            hint(segmentCount >= 2
-                 ? "點兩段影片之間的接點圖示,即可選擇轉場效果"
-                 : "轉場需要兩段以上的影片。用右上角的 + 再加入一段。")
+            hint("先點一下時間軸上的影片片段,再按「轉場」")
 
         case .adjust:
             // Curves / HSL / noise-reduction are V3 — hidden until shipped.

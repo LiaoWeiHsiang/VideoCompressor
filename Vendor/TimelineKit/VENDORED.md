@@ -263,6 +263,17 @@ the package. Using it therefore means accepting its export path, which we must c
     duration as a sped-up one. `SpeedContentTests` uses a fixture whose brightness encodes
     each frame's position, so it can read back which part of the footage is on screen.
 
+20. 動畫 folded into 轉場. New `ClipTransitionPanel` replaces the separate category: one
+    panel for a clip's entrance, its exit, and the junction to the next clip.
+
+    The two were distinct — an animation plays at one clip's own edges, a transition joins
+    two — but that was not legible from the names, so it read as two tools for one job. A
+    lone clip still gets entrance and exit; only the junction needs a following clip, and
+    the panel says so outright rather than offering something that cannot work.
+
+    `AnimationPickerSheet` is left in place: its combo (whole-clip) animations are not
+    carried over, and it is where they would come back from.
+
 ## Gotchas found while integrating (not patches — call sites must handle these)
 
 - **Canvas presets are all 720-based** (`EditorCanvas.Preset` → 1280×720 etc.), so

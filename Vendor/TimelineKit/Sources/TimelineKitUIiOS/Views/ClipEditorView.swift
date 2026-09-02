@@ -395,10 +395,11 @@ public struct ClipEditorView: View {
                   store.timeline.mainTrack?.segment(id: segID) != nil {
             SpeedPanel(segmentID: segID, store: store, onDismiss: { activeToolCategory = nil })
                 .transition(.move(edge: .bottom).combined(with: .opacity))
-        } else if activeToolCategory == .animation,
+        } else if activeToolCategory == .transition,
                   let segID = store.selection.singleSelectedID,
                   store.timeline.mainTrack?.segment(id: segID) != nil {
-            AnimationPickerSheet(segmentID: segID, store: store, onDismiss: { activeToolCategory = nil })
+            // LOCAL PATCH (VENDORED.md #20): entrance, exit and the junction in one place.
+            ClipTransitionPanel(segmentID: segID, store: store, onDismiss: { activeToolCategory = nil })
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         } else if activeToolCategory == .audio,
                   let segID = store.selection.singleSelectedID,
