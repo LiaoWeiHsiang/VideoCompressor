@@ -252,6 +252,17 @@ the package. Using it therefore means accepting its export path, which we must c
     for a reason nobody can find. `setVideoMuted` itself is untouched, so a saved timeline
     containing a muted segment still renders that way.
 
+19. `VideoLayerSpec` carries `speed`, and `VideoFrameProvider.clampedLocalTime` multiplies
+    by it. The preview read source time as `sourceStart + elapsed`, so a clip played at
+    normal rate inside a slot that speed had already shortened — reading as truncated
+    rather than faster. `LayerResolver` passes the segment's speed at all four construction
+    sites.
+
+    The export path was correct all along. The speed tests could not show that, because
+    they asserted only the output *duration*, and a truncated clip has exactly the same
+    duration as a sped-up one. `SpeedContentTests` uses a fixture whose brightness encodes
+    each frame's position, so it can read back which part of the footage is on screen.
+
 ## Gotchas found while integrating (not patches — call sites must handle these)
 
 - **Canvas presets are all 720-based** (`EditorCanvas.Preset` → 1280×720 etc.), so

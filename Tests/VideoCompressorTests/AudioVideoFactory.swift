@@ -13,7 +13,14 @@ enum AudioVideoFactory {
 
     /// What the frames depict. `quadrants` paints four flat corners so a test can tell
     /// whether anything downstream rotated, flipped or cropped the picture.
-    enum Pattern { case noise, quadrants }
+    enum Pattern {
+        case noise
+        case quadrants
+        /// Each frame is a grey level encoding its own position in the clip, so a test can
+        /// read back *which source frame* a composition is showing. That is the only way to
+        /// tell a sped-up clip from a truncated one: both have the same duration.
+        case timecode
+    }
 
 
     static func makeVideoWithAudio(
@@ -85,7 +92,7 @@ enum AudioVideoFactory {
                         return
                     }
                     autoreleasepool {
-                        if let buffer = makePixelBuffer(adaptor: adaptor, size: size, frameIndex: frameIndex, pattern: pattern) {
+                        if let buffer = makePixelBuffer(adaptor: adaptor, size: size, frameIndex: frameIndex, pattern: pattern, totalFramesHint: totalFrames) {
                             adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frameIndex), timescale: fps))
                         }
                     }
@@ -241,7 +248,8 @@ enum AudioVideoFactory {
         adaptor: AVAssetWriterInputPixelBufferAdaptor,
         size: CGSize,
         frameIndex: Int,
-        pattern: Pattern
+        pattern: Pattern,
+        totalFramesHint: Int
     ) -> CVPixelBuffer? {
         guard let pool = adaptor.pixelBufferPool else { return nil }
         var out: CVPixelBuffer?
@@ -260,6 +268,15 @@ enum AudioVideoFactory {
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
         ) {
+            if pattern == .timecode {
+                // Brightness ramps linearly with the frame index, so a rendered frame can
+                // be decoded back to the source time it came from.
+                let level = CGFloat(frameIndex) / CGFloat(max(totalFramesHint, 1))
+                context.setFillColor(CGColor(red: level, green: level, blue: level, alpha: 1))
+                context.fill(CGRect(origin: .zero, size: size))
+                return buffer
+            }
+
             if pattern == .quadrants {
                 // Four flat, saturated corners. Any rotation, flip or crop applied along
                 // the way rearranges them, which random noise could never reveal.

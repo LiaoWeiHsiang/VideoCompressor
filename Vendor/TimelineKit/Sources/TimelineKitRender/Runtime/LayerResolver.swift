@@ -121,7 +121,8 @@ public enum LayerResolver {
                 transform:       seg.transform,
                 adjustment:      seg.adjustment,
                 zPosition:       0,
-                baseOpacity:     Float(seg.transform.opacity)
+                baseOpacity:     Float(seg.transform.opacity),
+                speed:       seg.speed
             ))
         }
 
@@ -144,7 +145,8 @@ public enum LayerResolver {
                     transform:       seg.transform,
                     adjustment:      seg.adjustment,
                     zPosition:       -1,
-                    baseOpacity:     Float(seg.transform.opacity)
+                    baseOpacity:     Float(seg.transform.opacity),
+                    speed:       seg.speed
                 ))
             }
         }
@@ -209,7 +211,8 @@ public enum LayerResolver {
                     transform:       seg.transform,
                     adjustment:      seg.adjustment,
                     zPosition:       0,
-                    baseOpacity:     Float(seg.transform.opacity)
+                    baseOpacity:     Float(seg.transform.opacity),
+                    speed:       seg.speed
                 )
 
             default:
@@ -255,7 +258,8 @@ public enum LayerResolver {
                         transform:       seg.transform,
                         adjustment:      seg.adjustment,
                         zPosition:       -1,
-                        baseOpacity:     Float(seg.transform.opacity)
+                        baseOpacity:     Float(seg.transform.opacity),
+                        speed:       seg.speed
                     ))
 
                 default:

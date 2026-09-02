@@ -28,9 +28,9 @@ struct TransitionPreviewView: View {
     /// Half-window either side of the join.
     ///
     /// A second total was too brief to read what an effect does — especially a wipe or a
-    /// push, where most of the motion is at the edges. Each side contributes up to this
-    /// much, and a clip shorter than that simply contributes what it has.
-    private static let halfWindow = 2.5
+    /// push, where most of the motion is at the edges — and five made the loop drag. Each
+    /// side contributes up to this much; a clip shorter than that contributes what it has.
+    private static let halfWindow = 1.5
 
     var body: some View {
         ZStack {

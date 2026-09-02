@@ -27,6 +27,12 @@ public struct VideoLayerSpec: Sendable, Codable {
     public var zPosition: Int32
     /// Base opacity (0–1).
     public var baseOpacity: Float
+    /// LOCAL PATCH (see VENDORED.md #19). Playback rate for this clip.
+    ///
+    /// Without it the preview reads source time as `sourceStart + elapsed`, which plays at
+    /// normal rate inside a slot that speed has already shortened — so a 2x clip looked
+    /// merely truncated, not faster.
+    public var speed: Double = 1.0
 
     public init(
         assetURL: URL,
@@ -37,7 +43,8 @@ public struct VideoLayerSpec: Sendable, Codable {
         transform: SegmentTransform = .identity,
         adjustment: SegmentAdjustment = .identity,
         zPosition: Int32 = 0,
-        baseOpacity: Float = 1.0
+        baseOpacity: Float = 1.0,
+        speed: Double = 1.0
     ) {
         self.assetURL        = assetURL
         self.renderSize      = renderSize
@@ -48,6 +55,7 @@ public struct VideoLayerSpec: Sendable, Codable {
         self.adjustment      = adjustment
         self.zPosition       = zPosition
         self.baseOpacity     = baseOpacity
+        self.speed           = speed
     }
 
     // MARK: Codable

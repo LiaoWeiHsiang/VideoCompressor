@@ -244,7 +244,11 @@ extension ExportFrameProvider: VideoFrameProviderProtocol {
         guard duration.isFinite, duration > 0 else { return 0 }
         let rawLocalTime = compositionTime.seconds - spec.timeRange.start.seconds
         let frameEpsilon = 1.0 / 600.0
-        return min(max(rawLocalTime, 0), max(duration - frameEpsilon, 0))
+        let clamped = min(max(rawLocalTime, 0), max(duration - frameEpsilon, 0))
+        // LOCAL PATCH (VENDORED.md #19): a second on the timeline consumes `speed` seconds
+        // of footage. Without this the clip plays at normal rate in a slot speed already
+        // shortened, which reads as a truncated clip rather than a faster one.
+        return clamped * min(max(spec.speed, 0.25), 4.0)
     }
 
     private func readerFrame(
