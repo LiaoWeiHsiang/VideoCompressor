@@ -284,6 +284,17 @@ the package. Using it therefore means accepting its export path, which we must c
     `AnimationPickerSheet` is left in place: its combo (whole-clip) animations are not
     carried over, and it is where they would come back from.
 
+21. Preview speed. `PreviewFrameProvider` does not read the composition: it runs a hidden
+    `AVPlayer` per source file and samples whatever frame that player has reached, so the
+    `scaleTimeRange` patch #13 applies to the composition is invisible to it. Source time is
+    now `sourceStart + elapsed × speed`, and each hidden player runs at its segment's rate.
+
+    This is the second implementation of `VideoFrameProviderProtocol` — the same trap as
+    patch #9 (orientation). `ExportFrameProvider` is what the encoder reads and what most
+    tests reach; `PreviewFrameProvider` is what the editor actually shows. A fix applied to
+    one of them looks correct in every composition-level test and changes nothing on screen.
+    `PreviewSpeedTests` covers this class directly.
+
 ## Gotchas found while integrating (not patches — call sites must handle these)
 
 - **Canvas presets are all 720-based** (`EditorCanvas.Preset` → 1280×720 etc.), so

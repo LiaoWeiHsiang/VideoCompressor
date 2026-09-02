@@ -757,6 +757,12 @@ extension ExportFrameProvider: VideoFrameProviderProtocol {
 /// with image-only content has no real video sample at item time 0, so the
 /// first later video segment may never wake the output.
 public final class PreviewFrameProvider: VideoFrameProviderProtocol {
+    /// Same bounds as `CompositionBuilder.clampedSpeed`, so what the preview shows and
+    /// what the encoder writes cannot disagree about how fast a clip runs.
+    private static func clampedRate(_ spec: VideoLayerSpec) -> Double {
+        min(max(spec.speed, 0.25), 4.0)
+    }
+
     /// Identifies one timeline video segment. Used both as the `sources`
     /// dictionary key (so each segment owns an independent hidden player) and to
     /// detect segment entry. Includes `url` because an overlay video segment and
@@ -801,6 +807,15 @@ public final class PreviewFrameProvider: VideoFrameProviderProtocol {
         /// scrolled out of the playhead stops decoding, while transition zones
         /// (which request two sources every tick) keep both alive.
         var lastRequestedAt: TimeInterval = 0
+
+        /// LOCAL PATCH (VENDORED.md #19). The rate this segment's footage runs at.
+        ///
+        /// This provider does not read the composition — it runs a hidden player per
+        /// source file and samples whatever frame that player has reached. So the
+        /// `scaleTimeRange` that `CompositionBuilder` applies is invisible here, and a
+        /// hard-coded rate of 1.0 played the footage at normal speed inside a slot that
+        /// speed had already shortened: on screen, a trimmed clip rather than a fast one.
+        var playbackRate: Float = 1.0
 
         var url: URL { segmentKey.url }
 
@@ -1086,10 +1101,11 @@ public final class PreviewFrameProvider: VideoFrameProviderProtocol {
 
         let localTime = compositionTime.seconds - start.seconds
         let sourceTime = CMTime(
-            seconds: spec.sourceStartTime + localTime,
+            seconds: spec.sourceStartTime + localTime * Self.clampedRate(spec),
             preferredTimescale: 600
         )
         let source = sourceOutput(for: spec)
+        source.playbackRate = Float(Self.clampedRate(spec))
         source.lastRequestedAt = ProcessInfo.processInfo.systemUptime
         let timelinePlayback = isTimelinePlayback(at: compositionTime)
         pauseStaleSources()
@@ -1161,9 +1177,10 @@ public final class PreviewFrameProvider: VideoFrameProviderProtocol {
             let source = sourceOutput(for: spec)
             let localTime = max(0, time.seconds - spec.timeRange.start.seconds)
             let sourceTime = CMTime(
-                seconds: spec.sourceStartTime + localTime,
+                seconds: spec.sourceStartTime + localTime * Self.clampedRate(spec),
                 preferredTimescale: 600
             )
+            source.playbackRate = Float(Self.clampedRate(spec))
             prepareSourceForTargetedSeek(
                 source,
                 segmentKey: SegmentKey(spec: spec),
@@ -1450,7 +1467,7 @@ public final class PreviewFrameProvider: VideoFrameProviderProtocol {
         if activePlayback {
             source.consecutiveStaleFrameCount += 1
             recoverStalledOutputIfNeeded(source, sourceTime: sourceTime)
-            source.player.playImmediately(atRate: 1.0)
+            source.player.playImmediately(atRate: source.playbackRate)
             if let fallbackFrame = reusableStalledFrame(source, sourceTime: sourceTime) {
                 recordReuse(source)
                 logFrameReuse(
@@ -1544,8 +1561,11 @@ public final class PreviewFrameProvider: VideoFrameProviderProtocol {
             source.output.requestNotificationOfMediaDataChange(withAdvanceInterval: 0.03)
             return
         }
-        if source.player.rate == 0 {
-            source.player.playImmediately(atRate: 1.0)
+        // Also catches a rate that is merely *wrong*: changing speed on a clip that is
+        // already rolling leaves a non-zero rate in place, so testing only for a stopped
+        // player would keep the old speed until playback next stopped.
+        if source.player.rate != source.playbackRate {
+            source.player.playImmediately(atRate: source.playbackRate)
         }
         source.didStartPlaybackForSegment = true
     }
@@ -1573,7 +1593,7 @@ public final class PreviewFrameProvider: VideoFrameProviderProtocol {
             source.pendingSeekTime = nil
             source.output.requestNotificationOfMediaDataChange(withAdvanceInterval: 0.03)
             if activePlayback {
-                source.player.playImmediately(atRate: 1.0)
+                source.player.playImmediately(atRate: source.playbackRate)
             } else {
                 var displayTime = CMTime.invalid
                 if let buffer = source.output.copyPixelBuffer(
