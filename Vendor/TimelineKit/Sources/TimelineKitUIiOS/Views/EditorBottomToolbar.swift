@@ -158,7 +158,10 @@ struct EditorSecondaryToolPanel: View {
         // opened a panel containing a picture of the category. The real editors are
         // reachable, just not from here — say where instead of showing a dead control.
         case .transition:
-            hint("先點一下時間軸上的影片片段,再按「轉場」")
+            let segmentCount = store.timeline.mainTrack?.segments.count ?? 0
+            hint(segmentCount >= 2
+                 ? "點兩段影片之間的接點圖示,即可選擇轉場效果"
+                 : "轉場需要兩段以上的影片。用右上角的 + 再加入一段。")
 
         case .adjust:
             // Curves / HSL / noise-reduction are V3 — hidden until shipped.

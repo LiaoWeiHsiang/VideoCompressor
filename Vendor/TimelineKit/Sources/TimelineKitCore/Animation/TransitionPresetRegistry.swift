@@ -79,18 +79,28 @@ public enum TransitionPresetRegistry {
     public static func ensureDefaultsRegistered() {
         guard !defaultsLoaded else { return }
         defaultsLoaded = true
-        // 基础
+        // 基礎
         register(CrossFadePreset())
         register(FadeThroughBlackPreset())
-        // 移动
+        register(FadeThroughWhitePreset())
+        // 移動
         register(SlidePreset(presetID: "slideLeft",  displayName: "左移",    iconName: "arrow.left",         direction: .left))
         register(SlidePreset(presetID: "slideRight", displayName: "右移",    iconName: "arrow.right",        direction: .right))
+        register(SlidePreset(presetID: "slideUp",    displayName: "上移",    iconName: "arrow.up",           direction: .up))
+        register(SlidePreset(presetID: "slideDown",  displayName: "下移",    iconName: "arrow.down",         direction: .down))
         register(PushPreset (presetID: "pushLeft",   displayName: "推進·左", iconName: "arrow.left.to.line", direction: .left))
         register(PushPreset (presetID: "pushRight",  displayName: "推進·右", iconName: "arrow.right.to.line",direction: .right))
-        // 缩放
+        register(PushPreset (presetID: "pushUp",     displayName: "推進·上", iconName: "arrow.up.to.line",   direction: .up))
+        register(PushPreset (presetID: "pushDown",   displayName: "推進·下", iconName: "arrow.down.to.line", direction: .down))
+        register(WipePreset (presetID: "wipeLeft",   displayName: "刷過·左", iconName: "rectangle.lefthalf.filled",  direction: .left))
+        register(WipePreset (presetID: "wipeRight",  displayName: "刷過·右", iconName: "rectangle.righthalf.filled", direction: .right))
+        register(SpinPreset())
+        // 縮放
         register(ZoomInPreset())
+        register(ZoomOutPreset())
         // 模糊
         register(BlurFadePreset())
+        register(ZoomBlurPreset())
     }
 
     // MARK: - Compatibility mapping (legacy TransitionType → presetID)
@@ -180,26 +190,40 @@ struct SlidePreset: TransitionPreset {
     let category  = TransitionCategory.motion
     let iconName:    String
 
-    enum Direction { case left, right }
+    /// LOCAL PATCH (VENDORED.md #20): up/down added, so the vertical motions that only
+    /// existed as one-clip animations are available at a join too.
+    enum Direction { case left, right, up, down }
     let direction: Direction
 
     func render(
         outgoing: CIImage, incoming: CIImage,
         progress: Float, canvasSize: CGSize, context: CIContext
     ) -> CIImage {
-        let w      = canvasSize.width
-        let offset = CGFloat(progress) * w
         let canvasRect = CGRect(origin: .zero, size: canvasSize)
+        let (ax, ay) = direction.axis
+        let travel = ax != 0 ? canvasSize.width : canvasSize.height
+        let offset = CGFloat(progress) * travel
 
-        let outDx: CGFloat = direction == .left ? -offset : offset
-        let inDx:  CGFloat = direction == .left ? (w - offset) : (-w + offset)
+        let outShift = CGAffineTransform(translationX: ax * offset, y: ay * offset)
+        let inShift  = CGAffineTransform(translationX: ax * (offset - travel),
+                                         y: ay * (offset - travel))
 
-        let outSlid = outgoing.transformed(by: .init(translationX: outDx, y: 0))
-                              .cropped(to: canvasRect)
-        let inSlid  = incoming.transformed(by: .init(translationX: inDx,  y: 0))
-                              .cropped(to: canvasRect)
-
+        let outSlid = outgoing.transformed(by: outShift).cropped(to: canvasRect)
+        let inSlid  = incoming.transformed(by: inShift).cropped(to: canvasRect)
         return inSlid.composited(over: outSlid)
+    }
+}
+
+extension SlidePreset.Direction {
+    /// Unit vector the outgoing clip travels along. Core Image's y grows upward, so `.up`
+    /// is +y — the opposite of what a UIKit-shaped guess would give.
+    var axis: (CGFloat, CGFloat) {
+        switch self {
+        case .left:  return (-1, 0)
+        case .right: return (1, 0)
+        case .up:    return (0, 1)
+        case .down:  return (0, -1)
+        }
     }
 }
 
@@ -212,25 +236,25 @@ struct PushPreset: TransitionPreset {
     let category  = TransitionCategory.motion
     let iconName:    String
 
-    enum Direction { case left, right }
+    typealias Direction = SlidePreset.Direction
     let direction: Direction
 
     func render(
         outgoing: CIImage, incoming: CIImage,
         progress: Float, canvasSize: CGSize, context: CIContext
     ) -> CIImage {
-        let w      = canvasSize.width
-        let offset = CGFloat(progress) * w
         let canvasRect = CGRect(origin: .zero, size: canvasSize)
+        let (ax, ay) = direction.axis
+        let travel = ax != 0 ? canvasSize.width : canvasSize.height
+        let offset = CGFloat(progress) * travel
 
-        let (outDx, inDx): (CGFloat, CGFloat) = direction == .left
-            ? (-offset,      w - offset)
-            : ( offset,     -w + offset)
-
-        let outPushed = outgoing.transformed(by: .init(translationX: outDx, y: 0))
-                                .cropped(to: canvasRect)
-        let inPushed  = incoming.transformed(by: .init(translationX: inDx,  y: 0))
-                                .cropped(to: canvasRect)
+        let outPushed = outgoing
+            .transformed(by: .init(translationX: ax * offset, y: ay * offset))
+            .cropped(to: canvasRect)
+        let inPushed = incoming
+            .transformed(by: .init(translationX: ax * (offset - travel),
+                                   y: ay * (offset - travel)))
+            .cropped(to: canvasRect)
 
         return inPushed.composited(over: outPushed)
     }
@@ -310,5 +334,186 @@ struct BlurFadePreset: TransitionPreset {
             .cropped(to: canvasRect)
 
         return inFaded.composited(over: outBlurred)
+    }
+}
+
+// MARK: - Presets carried over from the animation effects
+//
+// LOCAL PATCH (see VENDORED.md #20). 動畫 and 轉場 were two separate panels offering
+// overlapping motions: 動畫 moved one clip on its own, 轉場 blended two. Keeping both meant
+// the same idea ("zoom", "slide up") lived in two places and only one of them applied at a
+// join. The motions below are the animation effects restated as joins, so the transition
+// grid is the single place to choose an effect.
+
+/// Mirror of `ZoomInPreset`: the outgoing clip falls away into the distance.
+struct ZoomOutPreset: TransitionPreset {
+    let presetID    = "zoomOut"
+    let displayName = "縮小"
+    let category    = TransitionCategory.zoom
+    let iconName    = "minus.magnifyingglass"
+
+    func render(
+        outgoing: CIImage, incoming: CIImage,
+        progress: Float, canvasSize: CGSize, context: CIContext
+    ) -> CIImage {
+        let canvasRect = CGRect(origin: .zero, size: canvasSize)
+        let p = CGFloat(progress)
+        let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+
+        let scale = 1.0 - p * 0.55
+        let t = CGAffineTransform(translationX: center.x, y: center.y)
+            .scaledBy(x: scale, y: scale)
+            .translatedBy(x: -center.x, y: -center.y)
+        let outScaled = outgoing
+            .transformed(by: t)
+            .applyingFilter("CIColorMatrix", parameters: [
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1 - p)
+            ])
+            .cropped(to: canvasRect)
+
+        let inFaded = incoming
+            .applyingFilter("CIColorMatrix", parameters: [
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: p)
+            ])
+            .cropped(to: canvasRect)
+
+        return inFaded.composited(over: outScaled)
+    }
+}
+
+/// 漸顯/漸隱 as a join: out to white, then in from white. Reads as a camera flash, and is
+/// the counterpart to the existing fade through black.
+struct FadeThroughWhitePreset: TransitionPreset {
+    let presetID    = "fadeThroughWhite"
+    let displayName = "閃白"
+    let category    = TransitionCategory.basic
+    let iconName    = "sun.max"
+
+    func render(
+        outgoing: CIImage, incoming: CIImage,
+        progress: Float, canvasSize: CGSize, context: CIContext
+    ) -> CIImage {
+        let canvasRect = CGRect(origin: .zero, size: canvasSize)
+        let white = CIImage(color: .white).cropped(to: canvasRect)
+        let p = CGFloat(progress)
+        let alpha = p < 0.5 ? p * 2 : (1 - p) * 2
+        let veil = white.applyingFilter("CIColorMatrix", parameters: [
+            "inputAVector": CIVector(x: 0, y: 0, z: 0, w: alpha)
+        ])
+        let base = p < 0.5 ? outgoing : incoming
+        return veil.composited(over: base).cropped(to: canvasRect)
+    }
+}
+
+/// 景深推進 as a join: the outgoing clip rushes at the camera and defocuses.
+struct ZoomBlurPreset: TransitionPreset {
+    let presetID    = "zoomBlur"
+    let displayName = "景深推進"
+    let category    = TransitionCategory.blur
+    let iconName    = "circle.hexagongrid"
+
+    func render(
+        outgoing: CIImage, incoming: CIImage,
+        progress: Float, canvasSize: CGSize, context: CIContext
+    ) -> CIImage {
+        let canvasRect = CGRect(origin: .zero, size: canvasSize)
+        let p = CGFloat(progress)
+        let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+
+        let scale = 1.0 + p * 0.6
+        let t = CGAffineTransform(translationX: center.x, y: center.y)
+            .scaledBy(x: scale, y: scale)
+            .translatedBy(x: -center.x, y: -center.y)
+        let outPushed = outgoing
+            .transformed(by: t)
+            .clampedToExtent()
+            .applyingFilter("CIGaussianBlur", parameters: ["inputRadius": p * 20])
+            .cropped(to: canvasRect)
+
+        let inScale = 1.3 - p * 0.3
+        let inT = CGAffineTransform(translationX: center.x, y: center.y)
+            .scaledBy(x: inScale, y: inScale)
+            .translatedBy(x: -center.x, y: -center.y)
+        let inPulled = incoming
+            .transformed(by: inT)
+            .clampedToExtent()
+            .applyingFilter("CIGaussianBlur", parameters: ["inputRadius": (1 - p) * 20])
+            .cropped(to: canvasRect)
+            .applyingFilter("CIColorMatrix", parameters: [
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: p)
+            ])
+
+        return inPulled.composited(over: outPushed)
+    }
+}
+
+/// 環繞 as a join: the picture swings through a quarter turn as it changes.
+struct SpinPreset: TransitionPreset {
+    let presetID    = "spin"
+    let displayName = "旋轉"
+    let category    = TransitionCategory.motion
+    let iconName    = "arrow.trianglehead.2.clockwise.rotate.90"
+
+    func render(
+        outgoing: CIImage, incoming: CIImage,
+        progress: Float, canvasSize: CGSize, context: CIContext
+    ) -> CIImage {
+        let canvasRect = CGRect(origin: .zero, size: canvasSize)
+        let p = CGFloat(progress)
+        let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+
+        func spun(_ image: CIImage, angle: CGFloat, scale: CGFloat, alpha: CGFloat) -> CIImage {
+            let t = CGAffineTransform(translationX: center.x, y: center.y)
+                .rotated(by: angle)
+                .scaledBy(x: scale, y: scale)
+                .translatedBy(x: -center.x, y: -center.y)
+            return image
+                .transformed(by: t)
+                .applyingFilter("CIColorMatrix", parameters: [
+                    "inputAVector": CIVector(x: 0, y: 0, z: 0, w: alpha)
+                ])
+                .cropped(to: canvasRect)
+        }
+
+        // Scaled up while turning, so the corners never expose empty canvas.
+        let quarter = CGFloat.pi / 2
+        let outSpun = spun(outgoing, angle: quarter * p, scale: 1 + 0.45 * p, alpha: 1 - p)
+        let inSpun = spun(incoming, angle: -quarter * (1 - p), scale: 1 + 0.45 * (1 - p), alpha: p)
+        return inSpun.composited(over: outSpun)
+    }
+}
+
+/// A hard edge sweeping across. The compositor already knew how to draw one; nothing in the
+/// grid ever selected it.
+struct WipePreset: TransitionPreset {
+    let presetID:    String
+    let displayName: String
+    let category  = TransitionCategory.motion
+    let iconName:    String
+    let direction: SlidePreset.Direction
+
+    func render(
+        outgoing: CIImage, incoming: CIImage,
+        progress: Float, canvasSize: CGSize, context: CIContext
+    ) -> CIImage {
+        let canvasRect = CGRect(origin: .zero, size: canvasSize)
+        let (ax, ay) = direction.axis
+        let travel = ax != 0 ? canvasSize.width : canvasSize.height
+        let position = travel * CGFloat(progress)
+
+        // The revealed strip advances from the edge the wipe travels away from.
+        let revealed: CGRect
+        if ax != 0 {
+            revealed = ax < 0
+                ? CGRect(x: canvasSize.width - position, y: 0, width: position, height: canvasSize.height)
+                : CGRect(x: 0, y: 0, width: position, height: canvasSize.height)
+        } else {
+            revealed = ay < 0
+                ? CGRect(x: 0, y: canvasSize.height - position, width: canvasSize.width, height: position)
+                : CGRect(x: 0, y: 0, width: canvasSize.width, height: position)
+        }
+
+        guard revealed.width > 0, revealed.height > 0 else { return outgoing.cropped(to: canvasRect) }
+        return incoming.cropped(to: revealed).composited(over: outgoing).cropped(to: canvasRect)
     }
 }

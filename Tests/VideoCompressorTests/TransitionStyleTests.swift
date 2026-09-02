@@ -44,14 +44,13 @@ final class TransitionStyleTests: XCTestCase {
     }
 
     /// Renders the middle of the transition, where the effects differ most.
+    ///
+    /// Takes the two clips as arguments rather than making its own: the earlier version
+    /// built a fresh pair per preset, and one of them was random noise — so two
+    /// fingerprints could differ because the *footage* differed, which proves nothing about
+    /// the effect. Both patterns are now deterministic and shared across the whole run.
     @MainActor
-    private func midTransitionFrame(presetID: String) async throws -> [Int] {
-        let a = try await AudioVideoFactory.makeVideoWithAudio(
-            seconds: 3, size: CGSize(width: 640, height: 480), pattern: .quadrants)
-        let b = try await AudioVideoFactory.makeVideoWithAudio(
-            seconds: 3, size: CGSize(width: 640, height: 480))
-        defer { [a, b].forEach { try? FileManager.default.removeItem(at: $0) } }
-
+    private func midTransitionFrame(presetID: String, a: URL, b: URL) async throws -> [Int] {
         let store = EditorStore(
             timeline: EditorTimeline(canvas: await EditorScreen.canvas(matching: a))
         )
@@ -92,16 +91,37 @@ final class TransitionStyleTests: XCTestCase {
         return try XCTUnwrap(fingerprint(buffer), "\(presetID): could not read the frame")
     }
 
+    /// One deterministic pair of clips, reused by every preset in a test.
+    private func makeClipPair() async throws -> (URL, URL) {
+        let a = try await AudioVideoFactory.makeVideoWithAudio(
+            seconds: 3, size: CGSize(width: 640, height: 480), pattern: .mosaic)
+        let b = try await AudioVideoFactory.makeVideoWithAudio(
+            seconds: 3, size: CGSize(width: 640, height: 480), pattern: .mosaicAlt)
+        return (a, b)
+    }
+
     /// The whole point: the grid must offer genuinely different effects.
+    ///
+    /// Driven by the registry rather than a hand-written list, so a preset added to the
+    /// grid without a matching style in `UnifiedCompositor` fails here. That failure mode
+    /// is silent otherwise — an unrecognised id falls back to a cross-fade, and the new
+    /// entry looks like it works while doing nothing.
     @MainActor
-    func testDifferentPresetsRenderDifferently() async throws {
+    func testEveryRegisteredPresetRendersDifferently() async throws {
+        _ = TimelineRenderer.self          // forces ensureDefaultsRegistered
+        TransitionPresetRegistry.ensureDefaultsRegistered()
+        let ids = TransitionPresetRegistry.allIDs
+        XCTAssertGreaterThan(ids.count, 10, "the grid should carry the folded-in 動畫 effects")
+
+        let (a, b) = try await makeClipPair()
+        defer { [a, b].forEach { try? FileManager.default.removeItem(at: $0) } }
+
         var seen: [String: [Int]] = [:]
-        for presetID in ["crossFade", "fadeThroughBlack", "slideLeft", "pushRight", "wipeLeft"] {
-            seen[presetID] = try await midTransitionFrame(presetID: presetID)
-            print("STYLE_\(presetID): \(seen[presetID]!.prefix(9))")
+        for presetID in ids {
+            seen[presetID] = try await midTransitionFrame(presetID: presetID, a: a, b: b)
         }
 
-        let names = Array(seen.keys).sorted()
+        let names = ids.sorted()
         var identicalPairs: [String] = []
         for i in 0..<names.count {
             for j in (i + 1)..<names.count where seen[names[i]] == seen[names[j]] {
@@ -112,13 +132,20 @@ final class TransitionStyleTests: XCTestCase {
                       "these presets render identically: \(identicalPairs.joined(separator: ", "))")
     }
 
-    /// Fading through black must actually reach black, which a cross-fade never does —
-    /// the clearest way to tell the two apart.
+    /// Fading through black must actually reach black, and the flash through white must
+    /// actually reach white. A cross-fade does neither, which is the clearest way to tell
+    /// all three apart.
     @MainActor
-    func testFadeThroughBlackGoesDark() async throws {
-        let fingerprint = try await midTransitionFrame(presetID: "fadeThroughBlack")
-        let brightest = fingerprint.max() ?? 255
-        print("STYLE_fadeThroughBlack brightest=\(brightest)")
-        XCTAssertLessThan(brightest, 4, "the midpoint of a fade through black should be dark")
+    func testFadeThroughBlackAndWhiteReachTheirColour() async throws {
+        let (a, b) = try await makeClipPair()
+        defer { [a, b].forEach { try? FileManager.default.removeItem(at: $0) } }
+
+        let dark = try await midTransitionFrame(presetID: "fadeThroughBlack", a: a, b: b)
+        print("STYLE_fadeThroughBlack brightest=\(dark.max() ?? -1)")
+        XCTAssertLessThan(dark.max() ?? 255, 4, "the midpoint of a fade through black should be dark")
+
+        let bright = try await midTransitionFrame(presetID: "fadeThroughWhite", a: a, b: b)
+        print("STYLE_fadeThroughWhite darkest=\(bright.min() ?? -1)")
+        XCTAssertGreaterThan(bright.min() ?? 0, 12, "the midpoint of a flash should be near white")
     }
 }

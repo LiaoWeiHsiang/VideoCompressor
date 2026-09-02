@@ -73,7 +73,14 @@ final class UnifiedCompositorInstruction: NSObject, AVVideoCompositionInstructio
         /// Both clips move together, as if shoved along.
         case push(dx: CGFloat, dy: CGFloat)
         case zoomIn
+        case zoomOut
         case blurFade
+        /// Rush at the camera and defocus.
+        case zoomBlur
+        /// Quarter turn through the cut.
+        case spin
+        /// Flash to white and back.
+        case fadeThroughWhite
         /// Hard edge sweeping across.
         case wipe(dx: CGFloat, dy: CGFloat)
 
@@ -88,10 +95,18 @@ final class UnifiedCompositorInstruction: NSObject, AVVideoCompositionInstructio
             case "slideDown":        return .slide(dx: 0, dy: -1)
             case "pushLeft":         return .push(dx: -1, dy: 0)
             case "pushRight":        return .push(dx: 1, dy: 0)
+            case "pushUp":           return .push(dx: 0, dy: 1)
+            case "pushDown":         return .push(dx: 0, dy: -1)
             case "zoomIn":           return .zoomIn
+            case "zoomOut":          return .zoomOut
             case "blurFade":         return .blurFade
+            case "zoomBlur":         return .zoomBlur
+            case "spin":             return .spin
+            case "fadeThroughWhite": return .fadeThroughWhite
             case "wipeLeft":         return .wipe(dx: -1, dy: 0)
             case "wipeRight":        return .wipe(dx: 1, dy: 0)
+            case "wipeUp":           return .wipe(dx: 0, dy: 1)
+            case "wipeDown":         return .wipe(dx: 0, dy: -1)
             default:                 return .crossFade
             }
         }
@@ -696,6 +711,64 @@ extension UnifiedCompositor {
                 ? incoming.clampedToExtent().applyingGaussianBlur(sigma: radius).cropped(to: canvas)
                 : incoming
             return dissolve(blurredOut, blurredIn, t)
+
+        case .zoomOut:
+            // Mirror of zoomIn: the outgoing clip recedes into the incoming one, which is
+            // revealed around it. Dissolving the two instead made this all but
+            // indistinguishable from a plain cross-fade — a 30% shrink moves very little
+            // near the centre, which is most of the frame.
+            let scale = 1.0 - 0.55 * t
+            let centred = CGAffineTransform(translationX: canvas.midX, y: canvas.midY)
+            let transform = CGAffineTransform(translationX: -canvas.midX, y: -canvas.midY)
+                .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+                .concatenating(centred)
+            let shrunk = outgoing
+                .transformed(by: transform)
+                .applyingFilter("CIColorMatrix", parameters: [
+                    "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1 - t)
+                ])
+                .cropped(to: canvas)
+            return shrunk.composited(over: incoming).cropped(to: canvas)
+
+        case .zoomBlur:
+            // The outgoing clip rushes at the camera and defocuses; the incoming settles
+            // back from slightly too close. Scaling up means no empty canvas at the edges.
+            let centred = CGAffineTransform(translationX: canvas.midX, y: canvas.midY)
+            func scaled(_ image: CIImage, _ scale: CGFloat, blur: CGFloat) -> CIImage {
+                let transform = CGAffineTransform(translationX: -canvas.midX, y: -canvas.midY)
+                    .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+                    .concatenating(centred)
+                let moved = image.transformed(by: transform)
+                return blur > 0.5
+                    ? moved.clampedToExtent().applyingGaussianBlur(sigma: blur).cropped(to: canvas)
+                    : moved.cropped(to: canvas)
+            }
+            let out = scaled(outgoing, 1 + 0.6 * t, blur: 20 * t)
+            let incomingScaled = scaled(incoming, 1.3 - 0.3 * t, blur: 20 * (1 - t))
+            return dissolve(out, incomingScaled, t)
+
+        case .spin:
+            // A quarter turn each way, meeting square-on at the midpoint. Both sides are
+            // scaled up while turned so the rotated corners never show through.
+            let quarter = CGFloat.pi / 2
+            let centred = CGAffineTransform(translationX: canvas.midX, y: canvas.midY)
+            func spun(_ image: CIImage, angle: CGFloat, scale: CGFloat) -> CIImage {
+                let transform = CGAffineTransform(translationX: -canvas.midX, y: -canvas.midY)
+                    .concatenating(CGAffineTransform(rotationAngle: angle))
+                    .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+                    .concatenating(centred)
+                return image.transformed(by: transform).cropped(to: canvas)
+            }
+            let outSpun = spun(outgoing, angle: quarter * t, scale: 1 + 0.45 * t)
+            let inSpun = spun(incoming, angle: -quarter * (1 - t), scale: 1 + 0.45 * (1 - t))
+            return dissolve(outSpun, inSpun, t)
+
+        case .fadeThroughWhite:
+            // The white counterpart of fadeThroughBlack — reads as a camera flash.
+            let white = CIImage(color: .white).cropped(to: canvas)
+            return t < 0.5
+                ? dissolve(outgoing, white, t * 2)
+                : dissolve(white, incoming, (t - 0.5) * 2)
 
         case .wipe(let dx, let dy):
             // A hard edge sweeping across, done with a gradient mask narrow enough to read

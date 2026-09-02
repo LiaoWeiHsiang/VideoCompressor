@@ -20,6 +20,15 @@ enum AudioVideoFactory {
         /// read back *which source frame* a composition is showing. That is the only way to
         /// tell a sped-up clip from a truncated one: both have the same duration.
         case timecode
+        /// Spatially varied but *deterministic* — every run paints the same picture. `noise`
+        /// cannot be used to compare two renders, because two clips made from it differ for
+        /// reasons that have nothing to do with what was being tested.
+        case mosaic
+        /// A second mosaic on a different phase and block size. Comparing two renders needs
+        /// both clips to be varied *everywhere*: flat regions hide any effect that only
+        /// moves pixels, because a sample taken inside one lands on the same colour however
+        /// far the picture was shifted or scaled.
+        case mosaicAlt
     }
 
 
@@ -290,6 +299,31 @@ enum AudioVideoFactory {
                 for (rect, color) in corners {
                     context.setFillColor(color)
                     context.fill(rect)
+                }
+                return buffer
+            }
+
+            if pattern == .mosaic || pattern == .mosaicAlt {
+                let blockSize: CGFloat = pattern == .mosaic ? 40 : 27
+                var y: CGFloat = 0
+                while y < size.height {
+                    var x: CGFloat = 0
+                    while x < size.width {
+                        // A cheap spatial hash: varied enough that a shift, scale or crop
+                        // moves the sampled colour, and identical on every run.
+                        let bx = Int(x / blockSize), by = Int(y / blockSize)
+                        let salt = pattern == .mosaic ? 0 : 0x5F37
+                        let h = ((bx &+ salt) &* 73_856_093) ^ ((by &+ salt) &* 19_349_663)
+                        context.setFillColor(CGColor(
+                            red: CGFloat((h >> 4) & 0xFF) / 255,
+                            green: CGFloat((h >> 12) & 0xFF) / 255,
+                            blue: CGFloat((h >> 20) & 0xFF) / 255,
+                            alpha: 1
+                        ))
+                        context.fill(CGRect(x: x, y: y, width: blockSize, height: blockSize))
+                        x += blockSize
+                    }
+                    y += blockSize
                 }
                 return buffer
             }

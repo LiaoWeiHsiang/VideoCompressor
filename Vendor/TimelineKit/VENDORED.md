@@ -263,13 +263,23 @@ the package. Using it therefore means accepting its export path, which we must c
     duration as a sped-up one. `SpeedContentTests` uses a fixture whose brightness encodes
     each frame's position, so it can read back which part of the footage is on screen.
 
-20. 動畫 folded into 轉場. New `ClipTransitionPanel` replaces the separate category: one
-    panel for a clip's entrance, its exit, and the junction to the next clip.
+20. 動畫 folded into 轉場, as extra entries in the preset grid rather than a new panel.
+    `TransitionPresetRegistry` gains 上移/下移, 推進·上/下, 刷過·左/右, 旋轉, 縮小, 閃白 and
+    景深推進 — the animation effects restated as joins — and `EditorToolCategory.animation`
+    is hidden.
 
-    The two were distinct — an animation plays at one clip's own edges, a transition joins
-    two — but that was not legible from the names, so it read as two tools for one job. A
-    lone clip still gets entrance and exit; only the junction needs a following clip, and
-    the panel says so outright rather than offering something that cannot work.
+    The two were distinct (an animation plays at one clip's own edges, a transition joins
+    two) but that was not legible from the names, so it read as two tools for one job. The
+    way in is unchanged: tap the junction badge between two clips; the grid simply has more
+    to choose from. `SlidePreset.Direction` grew `.up`/`.down`, and `PushPreset` now shares
+    that type instead of declaring its own.
+
+    Every grid entry needs a matching case in
+    `UnifiedCompositorInstruction.TransitionStyle.from(presetID:)`. Without one it falls
+    back to a cross-fade, so a new preset *looks* registered while doing nothing — the
+    failure is silent. `TransitionStyleTests.testEveryRegisteredPresetRendersDifferently`
+    walks `TransitionPresetRegistry.allIDs` for exactly this reason, so anything registered
+    without a style fails there.
 
     `AnimationPickerSheet` is left in place: its combo (whole-clip) animations are not
     carried over, and it is where they would come back from.
