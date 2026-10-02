@@ -26,6 +26,9 @@ struct ImmichClient {
         case unauthorized
         case serverUnreachable(String)
         case rejected(status: Int, body: String)
+        /// iOS refused a cleartext connection. Its own message — "the App Transport Security
+        /// policy requires the use of a secure connection" — never says what to change.
+        case insecureConnectionBlocked
 
         var errorDescription: String? {
             switch self {
@@ -37,8 +40,22 @@ struct ImmichClient {
                 return "無法連線到伺服器：\(detail)"
             case .rejected(let status, let body):
                 return "伺服器拒絕上傳（HTTP \(status)）：\(body)"
+            case .insecureConnectionBlocked:
+                return "iOS 封鎖了未加密的 http:// 連線。只有區域網路位址（192.168.x.x、10.x.x.x、.local）可以用 http；"
+                     + "其他位址請改用 https://。"
             }
         }
+    }
+
+    /// Maps a transport error to something the settings screen can act on.
+    static func describe(_ error: Error) -> Failure {
+        if let failure = error as? Failure { return failure }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain,
+           nsError.code == NSURLErrorAppTransportSecurityRequiresSecureConnection {
+            return .insecureConnectionBlocked
+        }
+        return .serverUnreachable(error.localizedDescription)
     }
 
     let credentials: Credentials
@@ -63,10 +80,8 @@ struct ImmichClient {
             guard let body = String(data: data, encoding: .utf8), body.contains("pong") else {
                 throw Failure.serverUnreachable("這個網址不是 Immich 伺服器")
             }
-        } catch let failure as Failure {
-            throw failure
         } catch {
-            throw Failure.serverUnreachable(error.localizedDescription)
+            throw Self.describe(error)
         }
     }
 
@@ -80,7 +95,12 @@ struct ImmichClient {
         request.timeoutInterval = 15
         request.setValue(credentials.apiKey, forHTTPHeaderField: "x-api-key")
 
-        let (data, response) = try await session.data(for: request)
+        let data: Data, response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw Self.describe(error)
+        }
         guard let http = response as? HTTPURLResponse else {
             throw Failure.serverUnreachable("非預期的回應")
         }
@@ -128,7 +148,13 @@ struct ImmichClient {
         )
 
         // uploadTask streams from disk rather than holding the whole video in memory.
-        let (data, response) = try await session.upload(for: request, fromFile: body)
+        let data: Data, response: URLResponse
+        do {
+            (data, response) = try await session.upload(for: request, fromFile: body)
+        } catch {
+            try? FileManager.default.removeItem(at: body)
+            throw Self.describe(error)
+        }
         try? FileManager.default.removeItem(at: body)
 
         guard let http = response as? HTTPURLResponse else {

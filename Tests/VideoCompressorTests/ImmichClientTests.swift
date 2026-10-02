@@ -185,3 +185,43 @@ final class ImmichClientTests: XCTestCase {
         XCTAssertNotNil(ImmichCredentialStore.credentials)
     }
 }
+
+/// ATS-related behaviour. Reported as "連不到 immich ... App Transport Security policy
+/// requires the use of a secure connection": the app had no ATS configuration at all, so
+/// iOS blocked the plain-HTTP address a self-hosted Immich normally runs on.
+extension ImmichClientTests {
+
+    /// The exception must stay the narrow one. `NSAllowsArbitraryLoads` would also permit
+    /// cleartext to any public address typed by mistake, carrying the API key in the clear.
+    func testLocalNetworkingIsAllowedButNotArbitraryLoads() throws {
+        let ats = try XCTUnwrap(
+            Bundle.main.object(forInfoDictionaryKey: "NSAppTransportSecurity") as? [String: Any],
+            "no ATS configuration — plain-HTTP servers on the LAN cannot be reached"
+        )
+        XCTAssertEqual(ats["NSAllowsLocalNetworking"] as? Bool, true)
+        XCTAssertNil(ats["NSAllowsArbitraryLoads"],
+                     "blanket cleartext would allow the API key over the public internet")
+    }
+
+    /// iOS's own wording never says what to change, so it must not be what the user sees.
+    func testATSRefusalBecomesAnActionableMessage() {
+        let atsError = NSError(
+            domain: NSURLErrorDomain,
+            code: NSURLErrorAppTransportSecurityRequiresSecureConnection
+        )
+        let failure = ImmichClient.describe(atsError)
+        XCTAssertEqual(failure, .insecureConnectionBlocked)
+        let message = try? XCTUnwrap(failure.errorDescription)
+        XCTAssertTrue(message?.contains("https") == true,
+                      "the message should say what to use instead")
+    }
+
+    /// An ordinary network failure must keep its own detail rather than being reported as
+    /// an ATS problem.
+    func testOtherNetworkErrorsAreNotMisreportedAsATS() {
+        let offline = NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet)
+        guard case .serverUnreachable = ImmichClient.describe(offline) else {
+            return XCTFail("an offline error should stay an unreachable-server error")
+        }
+    }
+}

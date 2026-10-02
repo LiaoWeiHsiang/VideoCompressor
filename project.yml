@@ -31,6 +31,13 @@ targets:
         NSPhotoLibraryUsageDescription: 需要存取相簿以選取要壓縮的影片
         NSPhotoLibraryAddUsageDescription: 需要存取相簿以儲存壓縮後的影片
         UIRequiresFullScreen: true
+        # A self-hosted Immich usually runs on plain HTTP inside the house, which ATS blocks
+        # by default. NSAllowsLocalNetworking is the narrowest exception that covers it: it
+        # permits HTTP only to private-range IPs, .local names and unqualified hostnames, and
+        # leaves ATS enforcing HTTPS for everything on the public internet. The blanket
+        # NSAllowsArbitraryLoads would also allow cleartext to any address typed by mistake.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
