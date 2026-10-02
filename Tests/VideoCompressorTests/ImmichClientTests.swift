@@ -216,6 +216,40 @@ extension ImmichClientTests {
                       "the message should say what to use instead")
     }
 
+    /// Whether ATS actually lets a request to a tailnet host through.
+    ///
+    /// Asserted by making the request: ATS rejects before any packet leaves the device and
+    /// reports -1022, so *any other* outcome — including a plain connection failure — proves
+    /// the policy allowed it. Checking the Info.plist alone would only prove the key is
+    /// spelled right, not that iOS honours it.
+    private func atsVerdict(for urlString: String) async -> Int? {
+        guard let url = URL(string: urlString) else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        do {
+            _ = try await URLSession.shared.data(for: request)
+            return 0                      // connected, so certainly not blocked
+        } catch {
+            return (error as NSError).code
+        }
+    }
+
+    func testTailnetHostIsNotBlockedByATS() async {
+        // A name that resolves nowhere: the request must fail, but it must fail for a
+        // network reason rather than being refused by policy.
+        let code = await atsVerdict(for: "http://no-such-machine.tail0000000.ts.net:2283/api/server/ping")
+        XCTAssertNotEqual(code, NSURLErrorAppTransportSecurityRequiresSecureConnection,
+                          "ATS is still blocking cleartext to a Tailscale hostname")
+    }
+
+    /// And the exception must not have become a blanket one. A public cleartext address is
+    /// where the API key would be exposed, so it has to stay refused.
+    func testPublicCleartextIsStillBlocked() async {
+        let code = await atsVerdict(for: "http://neverssl.com/")
+        XCTAssertEqual(code, NSURLErrorAppTransportSecurityRequiresSecureConnection,
+                       "cleartext to a public host should still be refused by ATS")
+    }
+
     /// An ordinary network failure must keep its own detail rather than being reported as
     /// an ATS problem.
     func testOtherNetworkErrorsAreNotMisreportedAsATS() {

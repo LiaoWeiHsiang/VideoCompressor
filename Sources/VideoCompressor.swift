@@ -311,6 +311,20 @@ final class VideoCompressor: ObservableObject {
             throw error
         }
 
+        // `AVAssetWriter` has just stamped mvhd/tkhd/mdhd with the time it finished, and
+        // exposes no way to set them. Everything outside this app reads those — Finder, the
+        // Files app, exiftool, and the servers built on it — so without this the file still
+        // claims it was shot at compression time however the metadata item reads.
+        if let stamp = Self.effectiveDate(dateMode: dateMode, sourceCreationDate: sourceCreationDate) {
+            do {
+                try MovieCreationDatePatcher.apply(stamp, to: outputURL)
+            } catch {
+                // A finished, playable file with a wrong header beats throwing away the
+                // encode, so this is reported and not fatal.
+                print("[VideoCompressor] could not stamp the movie header: \(error)")
+            }
+        }
+
         timer.mark("encode")
         timer.report(extra: [
             "seconds": String(format: "%.1f", trimmedDurationSeconds),
@@ -455,16 +469,23 @@ final class VideoCompressor: ObservableObject {
     ///
     /// `sourceCreationDate` therefore comes from `AVAsset.creationDate`, which resolves
     /// the movie header as well as metadata items.
+    /// Which timestamp the output should claim. One definition, used by both the metadata
+    /// item and the box headers — they disagreed before, and a reader that preferred the
+    /// header saw the encode time.
+    static func effectiveDate(dateMode: DateMode, sourceCreationDate: Date?) -> Date? {
+        switch dateMode {
+        case .original: return sourceCreationDate
+        case .now:      return Date()
+        }
+    }
+
     static func metadata(
         from source: [AVMetadataItem],
         dateMode: DateMode,
         sourceCreationDate: Date?
     ) -> [AVMetadataItem] {
-        let effectiveDate: Date?
-        switch dateMode {
-        case .original: effectiveDate = sourceCreationDate
-        case .now:      effectiveDate = Date()
-        }
+        let effectiveDate = Self.effectiveDate(dateMode: dateMode,
+                                               sourceCreationDate: sourceCreationDate)
 
         // Drop every inherited date item first, so a stale one can't win over ours.
         let withoutDates = source.filter { item in

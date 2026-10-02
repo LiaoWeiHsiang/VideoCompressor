@@ -38,6 +38,15 @@ targets:
         # NSAllowsArbitraryLoads would also allow cleartext to any address typed by mistake.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          # A Tailscale address is not "local" to ATS — 100.64.0.0/10 is CGNAT shared space,
+          # not a private range — so a self-hosted server reached over the tailnet stays
+          # blocked without this. Scoped to Tailscale's own MagicDNS domain, so it covers any
+          # tailnet machine by hostname and nothing else; the tailnet name itself is not
+          # written here, which keeps this repo free of personal infrastructure.
+          NSExceptionDomains:
+            ts.net:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
