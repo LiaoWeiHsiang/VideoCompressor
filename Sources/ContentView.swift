@@ -26,6 +26,10 @@ struct ContentView: View {
     @State private var showImmichSettings = false
     @State private var uploadToImmich = false
     @State private var isUploading = false
+    @State private var storageReport: StorageCleaner.Report?
+    @State private var isClearingCache = false
+    @State private var showClearCacheConfirmation = false
+    @State private var clearCacheSummary: String?
     @State private var uploadSummary: String?
 
     @StateObject private var compressor = VideoCompressor()
@@ -225,6 +229,38 @@ struct ContentView: View {
                              : "尚未設定伺服器。先填好網址與 API 金鑰才能開啟上傳。")
                     }
 
+                    Section {
+                        if let storageReport {
+                            HStack {
+                                Text("暫存檔")
+                                Spacer()
+                                Text(storageReport.formattedReclaimable)
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                            Button(role: .destructive) {
+                                showClearCacheConfirmation = true
+                            } label: {
+                                if isClearingCache {
+                                    HStack { ProgressView(); Text("清除中…") }
+                                } else {
+                                    Text("清除暫存檔")
+                                }
+                            }
+                            .disabled(isProcessingQueue || isClearingCache || storageReport.isEmpty)
+                        } else {
+                            HStack { ProgressView().controlSize(.small); Text("計算暫存檔大小…") }
+                        }
+
+                        if let clearCacheSummary {
+                            Text(clearCacheSummary).foregroundStyle(.secondary).font(.callout)
+                        }
+                    } header: {
+                        Text("儲存空間")
+                    } footer: {
+                        Text("壓縮好的影片會先留在暫存區，存到相簿或上傳之後不會自動刪除，久了會佔掉很多空間。清除只會刪掉這些暫存檔；佇列裡還沒處理的影片、剪輯設定和伺服器設定都不會動到。")
+                    }
+
                     if !doneItems.isEmpty {
                         Section {
                             Button {
@@ -305,6 +341,24 @@ struct ContentView: View {
             .onAppear {
                 restoreQueueIfNeeded()
                 checkInboxForPendingVideo()
+                refreshStorageReport()
+            }
+            .confirmationDialog(
+                "清除暫存檔？",
+                isPresented: $showClearCacheConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("清除 \(storageReport?.formattedReclaimable ?? "")", role: .destructive) {
+                    clearCache()
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("會刪掉壓縮產生的暫存影片。還沒存到相簿或上傳的影片會被保留，佇列和剪輯設定不受影響。")
+            }
+            // The queue changing changes what must be protected — a finished compression
+            // adds a file that is not rubbish yet — so the figure has to be recomputed.
+            .onChange(of: queue) { _, _ in
+                refreshStorageReport()
             }
             // Persist on every queue change rather than only on background: iOS can
             // terminate a suspended app without warning, and the whole point of saving an
@@ -316,6 +370,7 @@ struct ContentView: View {
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
                     checkInboxForPendingVideo()
+                    refreshStorageReport()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
@@ -332,6 +387,51 @@ struct ContentView: View {
     ///
     /// Guarded so returning from the share sheet or the editor — both of which re-run
     /// `onAppear` — cannot duplicate what is already on screen.
+    // MARK: - Scratch storage
+
+    /// Files under tmp that the app still needs, so a sweep cannot take them.
+    ///
+    /// A finished compression lives in tmp until the user saves or uploads it, and an
+    /// edited clip's rendered source is read when the queue is processed — both are scratch
+    /// by location but not rubbish yet.
+    private var protectedScratchURLs: Set<URL> {
+        var urls: Set<URL> = []
+        for item in queue {
+            if let output = item.outputURL { urls.insert(output) }
+            if let edited = item.editedSourceURL { urls.insert(edited) }
+            if case .file(let video) = item.source { urls.insert(video.url) }
+        }
+        return urls
+    }
+
+    private func refreshStorageReport() {
+        let protected = protectedScratchURLs
+        Task.detached(priority: .utility) {
+            let report = StorageCleaner.scan(protecting: protected)
+            await MainActor.run { storageReport = report }
+        }
+    }
+
+    private func clearCache() {
+        let protected = protectedScratchURLs
+        isClearingCache = true
+        clearCacheSummary = nil
+        Task.detached(priority: .utility) {
+            let freed = StorageCleaner.clean(protecting: protected)
+            let remaining = StorageCleaner.scan(protecting: protected)
+            await MainActor.run {
+                isClearingCache = false
+                storageReport = remaining
+                clearCacheSummary = freed.isEmpty
+                    ? "沒有可以清除的暫存檔。"
+                    : "已清除 \(freed.fileCount) 個檔案，釋放 \(freed.formattedReclaimable)。"
+                    + (freed.protectedBytes > 0
+                       ? "另外保留了 \(StorageCleaner.Report.format(freed.protectedBytes)) 還在使用中的檔案。"
+                       : "")
+            }
+        }
+    }
+
     private func restoreQueueIfNeeded() {
         guard !hasRestoredQueue else { return }
         hasRestoredQueue = true
