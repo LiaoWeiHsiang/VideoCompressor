@@ -129,6 +129,26 @@ if [[ "${1:-}" == "--install" ]]; then
   # The unattended daily job sets SKIP_LAUNCH: bringing an app to the foreground on someone's
   # phone in the middle of the night is not a side effect an install should have.
   if [[ "${SKIP_LAUNCH:-0}" != "1" ]]; then
-    xcrun devicectl device process launch --device "$DEVICE_ID" com.weihsiangliao.VideoCompressor
+    # A launch refusal is not an install failure, and the two need different responses. The
+    # common one — a fresh signing certificate that the phone has not been told to trust —
+    # arrives as a wall of FBSOpenApplicationServiceErrorDomain text that says nothing about
+    # which Settings pane to open. The install already succeeded, so say what is left to do
+    # and exit cleanly rather than looking like the whole run failed.
+    if ! xcrun devicectl device process launch --device "$DEVICE_ID" com.weihsiangliao.VideoCompressor 2>&1 \
+         | tee /tmp/vc-launch.log; then
+      :
+    fi
+    if grep -q "explicitly trusted\|invalid code signature" /tmp/vc-launch.log 2>/dev/null; then
+      cat <<'TRUST'
+
+The app is installed, but iOS will not launch it until this certificate is trusted.
+Free provisioning issues a new certificate every 7 days, so this comes back periodically.
+
+  On the phone: Settings > General > VPN & Device Management
+                > Developer App > (the Apple Development certificate) > Trust
+
+Then open the app from the Home Screen.
+TRUST
+    fi
   fi
 fi
